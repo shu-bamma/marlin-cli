@@ -1,0 +1,27 @@
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+uv.lock
+
+# marlin runtime artifacts
+marlin_clips/
+*.lancedb/
+.marlin/
+
+# secrets
+.env
+*.key
+
+# os / editors
+.DS_Store
+.idea/
+.vscode/
+
+# session-harness state
+.agents/
+.codex/
+.claude/settings.local.json
