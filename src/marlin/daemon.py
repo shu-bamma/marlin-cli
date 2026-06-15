@@ -37,6 +37,30 @@ def _alive(pid: int) -> bool:
         return False
 
 
+# Marlin-2B weights are gated; surface the 1-click form instead of a raw error.
+_GATED_HINTS = (
+    "gatedrepo", "gated repo", "is gated", "access to model", "restricted",
+    "awaiting a review", "must be authenticated", "401 client error",
+    "403 client error", "cannot access gated",
+)
+
+
+def _gated_msg() -> str:
+    return (
+        "Marlin-2B weights are gated. Request 1-click access (free) at "
+        f"{engines.MLX_ACCESS_URL} — approve it, then re-run."
+    )
+
+
+def _gated_in_log() -> bool:
+    """True if the engine log shows a gated/auth failure pulling the weights."""
+    try:
+        tail = LOG_FILE.read_text(errors="ignore")[-6000:].lower()
+    except Exception:
+        return False
+    return any(h in tail for h in _GATED_HINTS)
+
+
 def status(cfg: Config) -> dict:
     d = _read()
     pid = d.get("pid")
@@ -73,6 +97,8 @@ def start(cfg: Config, log, port: int = engines.LOCAL_PORT, wait_s: float = 600.
     deadline = time.time() + wait_s
     while time.time() < deadline:
         if proc.poll() is not None:
+            if engine == "mlx" and _gated_in_log():
+                raise RuntimeError(_gated_msg())
             raise RuntimeError(f"engine exited (code {proc.returncode}) — see {LOG_FILE}")
         if probe(cfg.base_url, cfg.api_key):
             log("engine ready.")
@@ -107,9 +133,13 @@ def ensure_running(cfg: Config, log) -> None:
     eng = engines.resolve_engine(cfg)
     if eng == "hosted":
         return
+    if probe(cfg.base_url, cfg.api_key):
+        return  # already serving — weights already present
+    # Fail fast (before a multi-minute build) if the gated weights are out of reach.
+    if eng == "mlx" and engines.weights_accessible(cfg) is False:
+        raise RuntimeError(_gated_msg())
     if eng == "mlx" and not engines.engine_ready(eng):
         from .output import build_spinner
         with build_spinner("building the local engine (one time)") as slog:
             engines.install_mlx(slog)
-    if not probe(cfg.base_url, cfg.api_key):
-        start(cfg, log)
+    start(cfg, log)
