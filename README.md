@@ -2,16 +2,13 @@
 
 Find moments in your videos. `marlin` is the agent-first CLI for
 [Marlin-2B](https://huggingface.co/NemoStation/Marlin-2B) — a 2B video VLM
-for dense captioning + temporal grounding. Runs **free on your Mac (Apple
-Silicon) or NVIDIA GPU** (MLX / vLLM), or against **NemoStation hosted**
-inference with one env var.
+for dense captioning + temporal grounding. Runs **free and local** on Apple
+Silicon (MLX) or NVIDIA (vLLM) — no API key, no network for inference.
 
 ```bash
-uv tool install nemostation           # or: pipx install nemostation
-marlin setup                          # auto-detects Apple Silicon / NVIDIA / hosted
-marlin engine install                 # local only — builds the engine for your machine
-marlin index ./footage                # caption + embed (resume-safe)
-marlin find "deer crossing the road"  # exact clip, model-verified timestamps
+uv tool install nemostation                          # or: pipx install nemostation
+marlin                                               # first run: detect Apple Silicon/NVIDIA + build the engine
+marlin find "deer crossing the road" --in ./footage  # auto-indexes, then model-verified timestamps
 ```
 
 ## Why timestamps are right here
@@ -30,17 +27,17 @@ marlin skills install        # → .claude/skills/ + .agents/skills/
 Every verb honors `--json` (auto when piped), long indexes run with
 `--async` + `marlin status <job_id>`. See `skills/video-search/SKILL.md`.
 
-## How it runs (auto-detected)
+## How it runs (auto-detected, local)
 
-| | Apple Silicon | NVIDIA | hosted |
-|---|---|---|---|
-| engine | SGLang-MLX | vLLM | Modal (vLLM), scale-to-zero |
-| serve | `marlin serve` — auto-starts on first `find` | `marlin serve` | `deploy/modal_app.py` |
-| auth | none (weights gated: 1-click form) | none | `MARLIN_API_KEY` |
-| config | `marlin setup --local` | `marlin setup --local` | `marlin setup --hosted --base-url … --api-key …` |
+| | Apple Silicon | NVIDIA |
+|---|---|---|
+| engine | SGLang-MLX | vLLM |
+| serve | auto-starts on first `find` (or `marlin serve`) | same |
+| weights | gated — 1-click access form | gated — 1-click form |
 
-Non-interactive/agent path: set `MARLIN_BASE_URL` (+ `MARLIN_API_KEY` if
-hosted) — env always beats `~/.marlin/config.json`.
+No API key — inference is local. Agents use the same verbs with `--json`
+(clean stdout, progress on stderr). A hosted `base_url` swap lives in
+`deploy/` for a future skill; it's not surfaced in the CLI yet.
 
 ## Speech
 

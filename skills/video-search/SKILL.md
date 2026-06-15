@@ -1,16 +1,10 @@
 ---
 name: video-search
-description: Find moments in videos by describing them. Use whenever the user asks to find when something happens in a video, search video footage, locate a scene or clip, get timestamps for an event, or ask questions like "when did X happen" / "show me every time Y occurs" across video files, folders of footage, or YouTube links. Powered by Marlin-2B — local on Apple Silicon (MLX) or NVIDIA (vLLM), free, or NemoStation hosted inference.
+description: Find moments in videos by describing them. Use whenever the user asks to find when something happens in a video, search video footage, locate a scene or clip, get timestamps for an event, or ask questions like "when did X happen" / "show me every time Y occurs" across video files, folders of footage, or YouTube links. Powered by Marlin-2B — runs locally on Apple Silicon (MLX) or NVIDIA (vLLM), free, no API key.
 license: MIT
 metadata:
   requires:
     bins: ["marlin", "ffmpeg"]
-  primaryEnv: MARLIN_API_KEY
-  required_environment_variables:
-    - name: MARLIN_API_KEY
-      prompt: NemoStation hosted API key
-      help: Only needed for hosted mode. Free local mode needs no key — run `marlin setup` (auto-detects Apple Silicon/NVIDIA) then `marlin engine install`. Hosted keys at https://nemostation.com (free trial tier).
-      required_for: hosted inference only
 ---
 
 # video-search — find the moment in any footage
@@ -23,9 +17,8 @@ winning clips — timestamps come from the model that was trained for them.
 
 | Job | Command |
 |---|---|
-| Configure (first run) | `marlin setup` (interactive) or `marlin setup --local --non-interactive` |
-| Configure hosted | `marlin setup --hosted --base-url "$URL" --api-key "$MARLIN_API_KEY" --non-interactive` |
-| Install local engine | `marlin engine install` (Apple Silicon → SGLang-MLX; NVIDIA → vLLM) |
+| First run | nothing to configure — the first `marlin` command onboards (or `marlin setup --non-interactive`) |
+| Install local engine | `marlin engine install` (Apple Silicon → SGLang-MLX; NVIDIA → vLLM); also auto-builds on first index/find |
 | Start local server | `marlin serve` (or `--detach`; also auto-starts on first index/find) |
 | Index footage | `marlin index ./footage --json` |
 | Index big folder (async) | `marlin index ./footage --async --json` → `{"job_id": "..."}` |
@@ -43,13 +36,19 @@ winning clips — timestamps come from the model that was trained for them.
 3. Folders over ~30 min of video: use `index --async`, report the `job_id`, poll `status`.
 4. Speech matters (meetings, lectures, interviews, body-cam)? add `--stt` at index time. Visual-only footage (dashcam, CCTV, sports, b-roll) doesn't need it.
 5. Quote timestamps from the output verbatim; `"grounded": true` means model-verified span, `false` means index-span fallback — say which.
-6. Never embed the API key in commands; it's read from env/config.
+6. Local-only for now (Apple Silicon / NVIDIA) — no API key, no network for inference.
 
-## First-run onboarding (do this when `marlin setup` has never run)
+## First-run onboarding (automatic)
 
-Ask the user one question: **"Run Marlin locally (free, on your Apple Silicon / NVIDIA GPU) or use NemoStation hosted (API key, zero setup)?"**
-- local → `marlin setup --local --non-interactive` (auto-detects the engine), then `marlin engine install`. On Apple Silicon the MLX weights are **gated** — if install/serve reports a 403, tell the user to open the printed access-form link and fill it (1-click), then retry. The engine **auto-starts on the first `index`/`find`** (first call warms ~40s).
-- hosted → ask for the key (or use `$MARLIN_API_KEY`), then `marlin setup --hosted --base-url <url> --api-key <key> --non-interactive`.
+There's no separate setup step. The first `marlin` command (e.g. `marlin find …`)
+auto-onboards: it detects the machine (Apple Silicon → MLX, NVIDIA → vLLM),
+builds the local engine once (a few minutes), then runs. On Apple Silicon the
+MLX weights are **gated** — if a 403 is reported, tell the user to open the
+printed access-form link and approve it (1-click), then retry. The engine
+**auto-starts on the first `index`/`find`** (first call warms ~40s).
+
+Marlin runs **locally only** for now (Apple Silicon or NVIDIA). A hosted API
+lives in the repo as a drop-in `base_url` swap but is not surfaced yet.
 
 ## Output contracts
 
@@ -79,7 +78,7 @@ Ask the user one question: **"Run Marlin locally (free, on your Apple Silicon / 
 | `not configured` | Run the first-run onboarding above. |
 | `ffmpeg/ffprobe not found` | `brew install ffmpeg` (macOS) / `apt install ffmpeg`. |
 | `Connection refused` / `APIConnectionError` | Local server not running → `marlin serve` (keep it running), or re-run `marlin setup`. |
-| `401` / `403` | Bad/expired `MARLIN_API_KEY` → ask the user to check their key. |
+| `403` / gated repo | MLX weights need access — open the printed access-form link, approve (1-click), retry. |
 | `index is empty` | `marlin index <path>` first, or use `find --in <path>`. |
 | `no videos found` | Check the path; supported: mp4 mov mkv webm avi m4v, or a YouTube URL. |
 | `speech indexing needs faster-whisper` | `pip install 'nemostation[stt]'`. |

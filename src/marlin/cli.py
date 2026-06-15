@@ -13,27 +13,43 @@ from rich.table import Table
 
 from . import __version__, config as cfg_mod
 from .config import Config, DEFAULT_LOCAL_URL, DEFAULT_MODEL
-from .output import banner, console, emit, err_console, set_json, spinner
+from .output import banner, console, emit, err_console, is_json, set_json, spinner
 from .output import status as echo
 
-app = typer.Typer(add_completion=False, no_args_is_help=True, rich_markup_mode="rich")
+app = typer.Typer(add_completion=False, rich_markup_mode="rich")
 skills_app = typer.Typer(no_args_is_help=True)
 app.add_typer(skills_app, name="skills", help="Install agent skills that ride this CLI.")
 
 
-@app.callback()
-def _root(json_out: bool = typer.Option(False, "--json", help="Force JSON output (auto when piped).")):
+@app.callback(invoke_without_command=True)
+def _root(
+    ctx: typer.Context,
+    json_out: bool = typer.Option(False, "--json", help="Force JSON output (auto when piped)."),
+):
     set_json(json_out)
+    if ctx.invoked_subcommand is not None:
+        return
+    # Bare `marlin`: onboard on first run (no separate setup step), else show help.
+    if not cfg_mod.configured():
+        _do_setup()
+    else:
+        typer.echo(ctx.get_help())
 
 
 def _require_config() -> Config:
-    if not cfg_mod.configured():
-        err_console.print(
-            "[err]not configured[/err] — run [bold]marlin setup[/bold] "
-            "(or set MARLIN_BASE_URL / MARLIN_API_KEY for non-interactive use)"
-        )
-        raise typer.Exit(2)
-    return cfg_mod.load()
+    if cfg_mod.configured():
+        return cfg_mod.load()
+    # Unconfigured + interactive terminal: onboard inline so `marlin find …`
+    # works on the very first command. Non-interactive/piped → clear error.
+    if not is_json() and sys.stdin.isatty():
+        _do_setup()
+        if cfg_mod.configured():
+            return cfg_mod.load()
+    err_console.print(
+        "[err]not configured[/err] — run [bold]marlin setup[/bold] "
+        "(or set MARLIN_BASE_URL for non-interactive use)"
+    )
+    raise typer.Exit(2)
 
 
 def _platform_human(p: str) -> str:
@@ -55,18 +71,22 @@ def _next_steps() -> None:
     console.print()
 
 
-@app.command()
-def setup(
-    local: bool = typer.Option(False, "--local", help="Run locally (auto-detects MLX on Apple Silicon, vLLM on NVIDIA)."),
-    hosted: bool = typer.Option(False, "--hosted", help="Use the hosted NemoStation endpoint."),
-    engine: str = typer.Option("", "--engine", help="Force engine: mlx | vllm | hosted (default: auto-detect)."),
-    base_url: str = typer.Option("", "--base-url", help="Override endpoint URL."),
-    api_key: str = typer.Option("", "--api-key", help="API key for hosted mode."),
-    build: bool = typer.Option(True, "--build/--no-build", help="Build the local engine inline during setup."),
-    non_interactive: bool = typer.Option(False, "--non-interactive", help="No prompts; flags/env only."),
-):
-    """Configure marlin. Auto-detects your platform: Apple Silicon (MLX),
-    NVIDIA (vLLM), or hosted (API key)."""
+def _do_setup(
+    *,
+    engine: str = "",
+    build: bool = True,
+    non_interactive: bool = False,
+    local: bool = False,
+    hosted: bool = False,
+    base_url: str = "",
+    api_key: str = "",
+) -> None:
+    """Onboarding core — shared by the `setup` command and first-run auto-setup.
+
+    Local-first: the engine is the machine's, not a menu — MLX on Apple Silicon,
+    vLLM on NVIDIA. Hosted stays in the code as a base_url swap (advanced
+    --hosted flag) for future skills; it is not surfaced in the flow.
+    """
     from . import engines
     from .backend import probe
     from .chunker import check_ffmpeg
@@ -81,24 +101,25 @@ def setup(
     rec = engines.default_engine()  # mlx | vllm | hosted
 
     human_mode = not is_json()
-    interactive = human_mode and not non_interactive
-    eng = engine or ("hosted" if hosted else (rec if local else ""))
 
-    # Greet first, then ask (a banner after the prompt reads backwards).
+    # Engine = the machine, not a question. Explicit --hosted/--engine are still
+    # honored (advanced/future); otherwise local on Apple Silicon / NVIDIA.
+    eng = engine or ("hosted" if hosted else "")
+    if not eng:
+        if detected in ("apple_silicon", "nvidia"):
+            eng = rec
+        else:
+            err_console.print(
+                "[err]no local GPU[/err] — Marlin runs locally on Apple Silicon or NVIDIA; "
+                "neither detected here. [muted](hosted API coming later)[/muted]"
+            )
+            raise typer.Exit(2)
+    interactive = human_mode and not non_interactive
+
     if human_mode:
         banner()
-    if not eng and interactive:
-        if detected in ("apple_silicon", "nvidia"):
-            console.print(f"  [muted]{_platform_human(detected)} detected — Marlin runs on this machine, free.[/muted]\n")
-            console.print("  How should Marlin run?")
-            console.print("    [accent]›[/accent] [accent]local[/accent]    on this machine, free   [muted](recommended)[/muted]")
-            console.print("      [muted]hosted   NemoStation API key[/muted]")
-            ans = typer.prompt("  choose", default="local").strip().lower()
-            eng = "hosted" if ans.startswith("h") else rec
-        else:
-            console.print("  [muted]No local GPU here — using NemoStation hosted.[/muted]")
-            eng = "hosted"
-    eng = eng or rec
+        if eng != "hosted":
+            console.print(f"  [muted]{_platform_human(detected)} detected — Marlin runs on this machine, free.[/muted]")
 
     if eng == "hosted":
         cfg.mode, cfg.engine = "hosted", "hosted"
@@ -178,6 +199,21 @@ def setup(
         _next_steps()
 
     emit(result, human)
+
+
+@app.command()
+def setup(
+    engine: str = typer.Option("", "--engine", help="Force the local engine: mlx | vllm (default: auto-detect)."),
+    build: bool = typer.Option(True, "--build/--no-build", help="Build the local engine inline during setup."),
+    non_interactive: bool = typer.Option(False, "--non-interactive", help="No prompts; flags/env only."),
+    local: bool = typer.Option(False, "--local", hidden=True),
+    hosted: bool = typer.Option(False, "--hosted", hidden=True),
+    base_url: str = typer.Option("", "--base-url", hidden=True),
+    api_key: str = typer.Option("", "--api-key", hidden=True),
+):
+    """Set up marlin to run locally — auto-detects Apple Silicon (MLX) or NVIDIA (vLLM)."""
+    _do_setup(engine=engine, build=build, non_interactive=non_interactive,
+              local=local, hosted=hosted, base_url=base_url, api_key=api_key)
 
 
 @app.command()
