@@ -163,9 +163,10 @@ def install_mlx(log) -> None:
         log(f"[{state['k']}/{total}] {label}")
 
     def run(cmd, cwd=None, env=None):
-        # Always capture: the installer stays quiet behind one spinner line;
-        # only a *failure* surfaces output (its stderr/stdout tail).
-        r = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, env=env)
+        # Always capture + close stdin: a build step must never block on a prompt
+        # (e.g. `patch` asking "File to patch:"). Only a failure surfaces output.
+        r = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, env=env,
+                           stdin=subprocess.DEVNULL)
         if r.returncode != 0:
             tail = (r.stderr or r.stdout or "").strip()[-800:]
             raise RuntimeError(f"step failed ({' '.join(cmd[:3])}…):\n{tail}")
@@ -198,16 +199,30 @@ def install_mlx(log) -> None:
     # sanitizer needs a one-line patch (verbatim from the fork).
     patch = MLX_ENGINE_DIR / "benchmark" / "marlin_video" / "patches" / "mlx_lm_qwen3_5_tied_lm_head.patch"
     if patch.is_file():
+        log("applying the tied-lm_head patch")
         site = run(
             [py, "-c", "import mlx_lm,os;print(os.path.dirname(os.path.dirname(mlx_lm.__file__)))"],
         ).stdout.strip()
-        # reverse dry-run succeeds iff already applied → skip; else apply forward
-        already = subprocess.run(
-            ["patch", "-p0", "-R", "--dry-run", "-i", str(patch)],
-            cwd=site, capture_output=True, text=True,
-        ).returncode == 0
-        if not already:
-            run(["patch", "-p0", "-i", str(patch)], cwd=site)
+
+        # Idempotent and NON-INTERACTIVE. `patch` prompts ("File to patch:",
+        # "Unreversed patch detected! Ignore -R?") and hangs forever if stdin is
+        # a tty — so every call is --batch with stdin closed. Decide by dry-run:
+        #   forward dry-run clean → not yet applied → apply
+        #   else reverse dry-run clean → already applied → skip
+        #   else → real conflict (mlx_lm drift) → surface it
+        def _dry(extra):
+            return subprocess.run(
+                ["patch", "-p0", "--batch", "--dry-run", *extra, "-i", str(patch)],
+                cwd=site, capture_output=True, text=True, stdin=subprocess.DEVNULL,
+            ).returncode == 0
+
+        if _dry([]):
+            run(["patch", "-p0", "--batch", "-i", str(patch)], cwd=site)
+        elif not _dry(["-R"]):
+            raise RuntimeError(
+                "mlx_lm tied-lm_head patch did not apply cleanly "
+                "(mlx_lm may have drifted from the fork's patch)"
+            )
 
 
 # ── weight access ───────────────────────────────────────────────────────────────
