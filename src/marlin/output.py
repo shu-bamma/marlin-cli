@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import sys
+from contextlib import contextmanager
 from typing import Any
 
 from rich.console import Console
@@ -24,6 +25,7 @@ BRAND = Theme({
     "warn": "#D97706",             # chartAmber
     "err": "bold #BF3131",
     "muted": "#5C4A46",            # inkLight — secondary text
+    "status.spinner": "#E76F57",   # override Rich's green default spinner
 })
 
 console = Console(theme=BRAND)
@@ -58,10 +60,30 @@ def status(msg: str) -> None:
 
 
 def banner() -> None:
-    """The marlin banner — human mode only (callers guard with emit/is_json)."""
+    """The marlin wordmark — human mode only (callers guard with emit/is_json).
+
+    Interim minimal mark: a clean coral wordmark, no ASCII art. The refined
+    visual identity is being chosen from CLI-design research; this placeholder
+    is deliberately plain so it never looks janky in the meantime.
+    """
     console.print()
-    console.print("      [model]___[/model]")
-    console.print("  [model]⟩⟩⟩─< °  )≡≡≡≡▷[/model]   [model]marlin[/model]")
-    console.print("      [model]‾‾‾[/model]           [muted]video understanding, on your Mac[/muted]")
-    console.print("                      [muted]NemoStation ·[/muted] [model]Marlin-2B[/model]")
+    console.print("  [model]marlin[/model]  [muted]· video understanding, on your Mac[/muted]")
+    console.print("  [muted]NemoStation · Marlin-2B[/muted]")
     console.print()
+
+
+@contextmanager
+def spinner(title: str):
+    """Hide a slow, noisy step behind one clean live line.
+
+    Human mode: a coral dots-spinner on stderr whose label is swapped via the
+    yielded ``log(msg)``. Agent/JSON mode: plain dim stderr lines (no spinner,
+    no control codes to corrupt a piped log). Either way callers get a ``log``.
+    Success/failure lines are the caller's job, printed after the block.
+    """
+    if is_json():
+        err_console.print(f"[muted]{title}…[/muted]")
+        yield lambda m: err_console.print(f"[muted]  {m}[/muted]")
+    else:
+        with err_console.status(f"[model]{title}…[/model]", spinner="dots", spinner_style="model") as st:
+            yield lambda m: st.update(f"[model]{title} — {m}…[/model]")

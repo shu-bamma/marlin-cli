@@ -152,35 +152,36 @@ def install_mlx(log) -> None:
         )
     ENGINES_DIR.mkdir(parents=True, exist_ok=True)
 
-    def run(cmd, capture=False, cwd=None, env=None):
-        log(f"  $ {' '.join(cmd)}")
-        r = subprocess.run(cmd, capture_output=capture, text=True, cwd=cwd, env=env)
+    def run(cmd, cwd=None, env=None):
+        # Always capture: the installer stays quiet behind one spinner line;
+        # only a *failure* surfaces output (its stderr/stdout tail).
+        r = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, env=env)
         if r.returncode != 0:
-            tail = (r.stderr or "")[-600:] if capture else "(see output above)"
+            tail = (r.stderr or r.stdout or "").strip()[-800:]
             raise RuntimeError(f"step failed ({' '.join(cmd[:3])}…):\n{tail}")
         return r
 
     if not (MLX_ENGINE_DIR / ".git").is_dir():
-        log("cloning the SGLang-MLX engine…")
+        log("cloning the engine")
         run(["git", "clone", "--depth", "1", "-b", SGLANG_BRANCH, SGLANG_FORK, str(MLX_ENGINE_DIR)])
 
     venv = MLX_ENGINE_DIR / ".venv"
     if not venv.is_dir():
-        log("creating the Python 3.12 engine venv…")
+        log("creating the Python 3.12 venv")
         run(["uv", "venv", "-p", "3.12", str(venv)], cwd=str(MLX_ENGINE_DIR))
 
     # The fork ships Apple/Metal build extras as pyproject_other.toml; select it.
     pp = MLX_ENGINE_DIR / "python" / "pyproject.toml"
     pp_other = MLX_ENGINE_DIR / "python" / "pyproject_other.toml"
     if pp_other.is_file():
-        log("selecting the Apple-Silicon build profile…")
+        log("selecting the build profile")
         pp.unlink(missing_ok=True)
         pp_other.rename(pp)
 
     py = str(mlx_python())
-    log("installing sglang[all_mps] (slow — builds the Metal extension)…")
+    log("building the Metal extension (slowest step)")
     run(["uv", "pip", "install", "--python", py, "-e", "python[all_mps]"], cwd=str(MLX_ENGINE_DIR))
-    log("installing MLX + video deps…")
+    log("installing MLX + video deps")
     run(["uv", "pip", "install", "--python", py, "--upgrade",
          "mlx", "mlx-lm", "mlx-vlm", "transformers>=5.7.0", "torchcodec",
          "qwen-vl-utils>=0.0.14", "av", "huggingface-hub>=1.18.0"])
@@ -191,17 +192,38 @@ def install_mlx(log) -> None:
     if patch.is_file():
         site = run(
             [py, "-c", "import mlx_lm,os;print(os.path.dirname(os.path.dirname(mlx_lm.__file__)))"],
-            capture=True,
         ).stdout.strip()
         # reverse dry-run succeeds iff already applied → skip; else apply forward
         already = subprocess.run(
             ["patch", "-p0", "-R", "--dry-run", "-i", str(patch)],
             cwd=site, capture_output=True, text=True,
         ).returncode == 0
-        if already:
-            log("  (mlx_lm patch already applied)")
-        else:
-            log("patching mlx_lm (qwen3_5 tied lm_head)…")
-            run(["patch", "-p0", "-i", str(patch)], capture=True, cwd=site)
+        if not already:
+            log("patching mlx_lm")
+            run(["patch", "-p0", "-i", str(patch)], cwd=site)
 
-    log("MLX engine ready.")
+
+# ── weight access ───────────────────────────────────────────────────────────────
+
+def weights_accessible(cfg: Config) -> bool | None:
+    """Can this user pull the gated MLX weights? True if yes, False if gated/denied,
+    None if undeterminable (no HF token, offline, hub not importable).
+
+    One cheap HF metadata call. Lets `setup` say "weights ready" for users who
+    already have access (e.g. the repo owner) instead of always nagging with the
+    access form. Best-effort: any failure to *determine* returns None, never raises.
+    """
+    try:
+        from huggingface_hub import HfApi, get_token
+        from huggingface_hub.utils import GatedRepoError, RepositoryNotFoundError
+    except Exception:
+        return None
+    try:
+        HfApi().model_info(cfg.mlx_weights, token=get_token())
+        return True
+    except (GatedRepoError, RepositoryNotFoundError):
+        # gated-without-access returns 403 (GatedRepoError) or, when unauthenticated,
+        # a 404 that hides the repo's existence — both mean "no access yet".
+        return False
+    except Exception:
+        return None

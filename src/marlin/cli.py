@@ -44,6 +44,17 @@ def _platform_human(p: str) -> str:
     }.get(p, p)
 
 
+def _short_platform(p: str) -> str:
+    return {"apple_silicon": "Apple Silicon", "nvidia": "NVIDIA", "other": "this machine"}.get(p, p)
+
+
+def _next_steps() -> None:
+    console.print()
+    console.print("  Search some footage:")
+    console.print('      [bold]marlin find "a deer crossing" --in ./clips[/bold]')
+    console.print()
+
+
 @app.command()
 def setup(
     local: bool = typer.Option(False, "--local", help="Run locally (auto-detects MLX on Apple Silicon, vLLM on NVIDIA)."),
@@ -51,6 +62,7 @@ def setup(
     engine: str = typer.Option("", "--engine", help="Force engine: mlx | vllm | hosted (default: auto-detect)."),
     base_url: str = typer.Option("", "--base-url", help="Override endpoint URL."),
     api_key: str = typer.Option("", "--api-key", help="API key for hosted mode."),
+    build: bool = typer.Option(True, "--build/--no-build", help="Build the local engine inline during setup."),
     non_interactive: bool = typer.Option(False, "--non-interactive", help="No prompts; flags/env only."),
 ):
     """Configure marlin. Auto-detects your platform: Apple Silicon (MLX),
@@ -58,6 +70,7 @@ def setup(
     from . import engines
     from .backend import probe
     from .chunker import check_ffmpeg
+    from .output import is_json, spinner
 
     if not check_ffmpeg():
         err_console.print("[err]ffmpeg/ffprobe not found[/err] — install first: brew install ffmpeg")
@@ -67,27 +80,33 @@ def setup(
     detected = engines.detect_platform()
     rec = engines.default_engine()  # mlx | vllm | hosted
 
+    human_mode = not is_json()
+    interactive = human_mode and not non_interactive
     eng = engine or ("hosted" if hosted else (rec if local else ""))
-    if not eng and not non_interactive:
-        console.print(f"\n[bold]Detected:[/bold] {_platform_human(detected)}")
-        console.print("[bold]How should Marlin-2B run?[/bold]")
+
+    # Greet first, then ask (a banner after the prompt reads backwards).
+    if human_mode:
+        banner()
+    if not eng and interactive:
         if detected in ("apple_silicon", "nvidia"):
-            console.print(f"  1. local — {engines.label(rec)}  [ok](recommended)[/ok]")
+            console.print(f"  [muted]{_platform_human(detected)} detected — Marlin runs on this machine, free.[/muted]\n")
+            console.print("  How should Marlin run?")
+            console.print("    [accent]›[/accent] [accent]local[/accent]    on this machine, free   [muted](recommended)[/muted]")
+            console.print("      [muted]hosted   NemoStation API key[/muted]")
+            ans = typer.prompt("  choose", default="local").strip().lower()
+            eng = "hosted" if ans.startswith("h") else rec
         else:
-            console.print("  1. local — needs Apple Silicon or NVIDIA (none detected here)")
-        console.print(f"  2. hosted — {engines.label('hosted')}")
-        default_choice = "1" if detected in ("apple_silicon", "nvidia") else "2"
-        choice = typer.prompt("choice", default=default_choice).strip()
-        eng = rec if choice == "1" else "hosted"
+            console.print("  [muted]No local GPU here — using NemoStation hosted.[/muted]")
+            eng = "hosted"
     eng = eng or rec
 
     if eng == "hosted":
         cfg.mode, cfg.engine = "hosted", "hosted"
         cfg.base_url = (base_url or (
-            typer.prompt("hosted base URL", default=cfg.base_url) if not non_interactive else cfg.base_url
+            typer.prompt("  hosted base URL", default=cfg.base_url) if interactive else cfg.base_url
         )).rstrip("/")
         cfg.api_key = api_key or os.environ.get("MARLIN_API_KEY", "") or (
-            typer.prompt("API key", hide_input=True) if not non_interactive else ""
+            typer.prompt("  API key", hide_input=True) if interactive else ""
         )
         if not cfg.base_url:
             err_console.print("[err]hosted mode needs --base-url[/err]")
@@ -98,34 +117,65 @@ def setup(
         cfg.api_key = api_key
 
     path = cfg_mod.save(cfg)
+
+    # Local: build the engine inline so onboarding is one command to ready
+    # (Ollama-style). Skips if already built or --no-build; agents build via
+    # `marlin engine install` or auto-build on the first find.
+    build_error = None
+    if interactive and build and eng in ("mlx", "vllm") and not engines.engine_ready(eng):
+        if eng == "vllm":
+            console.print("\n  [warn]vLLM not found[/warn] — install it: [bold]uv tool install vllm[/bold]")
+        else:
+            console.print()
+            try:
+                with spinner("building the local engine — SGLang-MLX (Metal), one time") as log:
+                    engines.install_mlx(log=log)
+            except RuntimeError as e:
+                build_error = str(e)
+
     reachable = probe(cfg.base_url, cfg.api_key)
     ready = engines.engine_ready(eng)
+    access = engines.weights_accessible(cfg) if eng == "mlx" else None
+
     result = {
         "configured": True, "mode": cfg.mode, "engine": eng, "base_url": cfg.base_url,
         "model": cfg.model, "engine_installed": ready, "server_reachable": reachable,
         "config_path": str(path),
     }
     if eng == "mlx":
-        result["weights"], result["access_form"] = cfg.mlx_weights, engines.MLX_ACCESS_URL
+        result["weights"] = cfg.mlx_weights
+        result["weights_access"] = access
+        result["access_form"] = engines.MLX_ACCESS_URL
+    if build_error:
+        result["build_error"] = build_error
 
     def human():
-        banner()
-        console.print(f"[ok]configured[/ok] → {path}")
-        console.print(f"  engine: [bold]{engines.label(eng)}[/bold]")
-        console.print(f"  endpoint: {cfg.base_url}")
+        console.print()
         if eng == "hosted":
-            console.print("  server: " + ("[ok]reachable[/ok]" if reachable else "[warn]unreachable — check URL/key[/warn]"))
-        elif not ready:
-            if eng == "mlx":
-                console.print("  engine: [warn]not installed[/warn] → [bold]marlin engine install[/bold]")
-                console.print(f"  weights: [warn]gated[/warn] — request access (1-click): [link]{engines.MLX_ACCESS_URL}[/link]")
-            else:
-                console.print("  engine: [warn]vLLM not found[/warn] → [bold]marlin engine install[/bold]")
-        elif reachable:
-            console.print("  server: [ok]running[/ok]")
+            console.print("  [ok]✓[/ok] configured — NemoStation hosted")
+            console.print("  [ok]✓[/ok] endpoint reachable" if reachable
+                          else "  [warn]⚠ endpoint not reachable[/warn] — check the URL / key")
+            _next_steps()
+            return
+
+        console.print(f"  [ok]✓[/ok] configured — local on {_short_platform(detected)}")
+        if build_error:
+            console.print("  [err]✗ engine build failed[/err] — retry: [bold]marlin engine install[/bold]")
+            tail = build_error.strip().splitlines()[-1][:100] if build_error.strip() else ""
+            if tail:
+                console.print(f"    [muted]{tail}[/muted]")
+        elif ready:
+            console.print("  [ok]✓[/ok] engine ready")
         else:
-            console.print("  engine: [ok]installed[/ok] — auto-starts on first [bold]find[/bold] (or run [bold]marlin serve[/bold])")
-        console.print("\nnext: [bold]marlin index <folder>[/bold] then [bold]marlin find \"query\"[/bold]")
+            console.print("  [muted]engine builds on your first search (or run: marlin engine install)[/muted]")
+
+        if eng == "mlx":
+            if access is True:
+                console.print("  [ok]✓[/ok] weights ready")
+            else:
+                console.print("  [warn]⚠[/warn] approve 1-click weight access (free):")
+                console.print(f"      [link]{engines.MLX_ACCESS_URL}[/link]")
+        _next_steps()
 
     emit(result, human)
 
@@ -179,30 +229,45 @@ def engine_install():
     """Install the local engine for this machine (SGLang-MLX on Apple Silicon, vLLM on NVIDIA)."""
     from . import engines
 
+    from .output import spinner
+
     eng = engines.default_engine()
     if eng == "hosted":
         err_console.print("[warn]no local GPU detected[/warn] (need Apple Silicon or NVIDIA) — use [bold]marlin setup --hosted[/bold]")
         raise typer.Exit(2)
     if eng == "vllm":
         if engines.vllm_ready():
-            emit({"engine": "vllm", "installed": True}, lambda: console.print("[ok]vLLM already installed[/ok]"))
+            emit({"engine": "vllm", "installed": True}, lambda: console.print("  [ok]✓[/ok] vLLM already installed"))
             return
         err_console.print("install vLLM: [bold]uv tool install vllm[/bold]  (or: pip install vllm)")
         raise typer.Exit(2)
 
-    echo("installing the SGLang-MLX engine — a few minutes the first time …")
-    try:
-        engines.install_mlx(log=echo)
-    except RuntimeError as e:
-        emit({"error": str(e)}, lambda: err_console.print(f"[err]{e}[/err]"))
-        raise typer.Exit(1)
+    already = engines.mlx_ready()
+    if not already:
+        try:
+            with spinner("building the local engine — SGLang-MLX (Metal), one time") as log:
+                engines.install_mlx(log=log)
+        except RuntimeError as e:
+            emit({"error": str(e)},
+                 lambda: err_console.print(f"  [err]✗ build failed[/err] — {str(e).strip().splitlines()[-1][:120]}"))
+            raise typer.Exit(1)
+
+    access = engines.weights_accessible(cfg_mod.load())
+
+    def human():
+        console.print("  [ok]✓[/ok] engine ready" + (" [muted](already built)[/muted]" if already else ""))
+        if access is True:
+            console.print("  [ok]✓[/ok] weights ready")
+        else:
+            console.print("  [warn]⚠[/warn] approve 1-click weight access (free):")
+            console.print(f"      [link]{engines.MLX_ACCESS_URL}[/link]")
+        _next_steps()
+
     emit(
-        {"engine": "mlx", "installed": True, "weights": cfg_mod.load().mlx_weights, "access_form": engines.MLX_ACCESS_URL},
-        lambda: console.print(
-            "[ok]MLX engine ready[/ok]\n"
-            f"  weights are gated — request access (1-click): [link]{engines.MLX_ACCESS_URL}[/link]\n"
-            "  then: [bold]marlin serve[/bold] (or it auto-starts on first find)"
-        ),
+        {"engine": "mlx", "installed": True, "already_built": already,
+         "weights": cfg_mod.load().mlx_weights, "weights_access": access,
+         "access_form": engines.MLX_ACCESS_URL},
+        human,
     )
 
 

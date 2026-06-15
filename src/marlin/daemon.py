@@ -101,8 +101,15 @@ def stop(log) -> dict:
 
 
 def ensure_running(cfg: Config, log) -> None:
-    """Auto-start the local engine if it isn't answering. Hosted mode = no-op."""
-    if engines.resolve_engine(cfg) == "hosted":
+    """Make the local engine answerable: build it if missing (Ollama-style, MLX
+    only), then auto-start it. Hosted mode = no-op; vLLM-not-installed falls
+    through to start()'s clear 'run marlin engine install' error."""
+    eng = engines.resolve_engine(cfg)
+    if eng == "hosted":
         return
+    if eng == "mlx" and not engines.engine_ready(eng):
+        from .output import spinner
+        with spinner("building the local engine — SGLang-MLX (Metal), one time") as slog:
+            engines.install_mlx(slog)
     if not probe(cfg.base_url, cfg.api_key):
         start(cfg, log)
