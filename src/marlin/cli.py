@@ -66,8 +66,9 @@ def _short_platform(p: str) -> str:
 
 def _next_steps() -> None:
     console.print()
-    console.print("  Search some footage:")
-    console.print('      [bold]marlin find "a deer crossing" --in ./clips[/bold]')
+    console.print("  Try it on a clip:")
+    console.print("      [bold]marlin caption clip.mp4[/bold]                 [muted]# describe a video[/muted]")
+    console.print('      [bold]marlin find clip.mp4 "a deer crossing"[/bold]  [muted]# locate a moment[/muted]')
     console.print()
 
 
@@ -216,6 +217,94 @@ def setup(
               local=local, hosted=hosted, base_url=base_url, api_key=api_key)
 
 
+def _ready_clip(video: str):
+    """Validate a single-clip path + ensure the local engine answers."""
+    from . import daemon
+
+    cfg = _require_config()
+    path = Path(video)
+    if not path.is_file():
+        emit({"error": f"not a file: {video}"},
+             lambda: err_console.print(f"[err]not a file:[/err] {video}"))
+        raise typer.Exit(1)
+    try:
+        daemon.ensure_running(cfg, log=echo)
+    except RuntimeError as e:
+        emit({"error": str(e)}, lambda: err_console.print(f"[err]{e}[/err]"))
+        raise typer.Exit(2)
+    return cfg, path
+
+
+@app.command()
+def caption(
+    video: str = typer.Argument(..., help="A single video file (a bounded clip, ~≤2 min)."),
+    detail: bool = typer.Option(False, "--detail", help="One free-form paragraph instead of the scene + event timeline."),
+):
+    """Describe what's in a video — Marlin-2B dense captioning (one clip)."""
+    from .backend import Marlin
+
+    cfg, path = _ready_clip(video)
+    m = Marlin(cfg)
+    try:
+        with spinner("captioning", fish=True):
+            if detail:
+                result = {"video": str(path), "caption": m.caption(path)}
+            else:
+                scene, events, _ = m.caption_events(path)
+                result = {"video": str(path), "scene": scene,
+                          "events": [{"start": e.start, "end": e.end, "text": e.text} for e in events]}
+    except Exception as e:
+        emit({"error": str(e)}, lambda: err_console.print(f"[err]{e}[/err]"))
+        raise typer.Exit(1)
+
+    def human():
+        console.print()
+        if detail:
+            console.print(f"  {result['caption']}\n")
+            return
+        if result["scene"]:
+            console.print(f"  {result['scene']}\n")
+        for ev in result["events"]:
+            console.print(f"  [num]{ev['start']:6.1f}s–{ev['end']:6.1f}s[/num]  {ev['text']}")
+        if not result["events"] and not result["scene"]:
+            console.print("  [warn]no caption returned[/warn]")
+        console.print()
+
+    emit(result, human)
+
+
+@app.command()
+def find(
+    video: str = typer.Argument(..., help="A single video file (a bounded clip, ~≤2 min)."),
+    query: str = typer.Argument(..., help="What to locate, in plain language."),
+):
+    """Find when something happens in a video — Marlin-2B temporal grounding (one clip)."""
+    from .backend import Marlin
+
+    cfg, path = _ready_clip(video)
+    m = Marlin(cfg)
+    try:
+        with spinner("finding the moment", fish=True):
+            (start, end), tier = m.ground(path, query)
+    except Exception as e:
+        emit({"error": str(e)}, lambda: err_console.print(f"[err]{e}[/err]"))
+        raise typer.Exit(1)
+
+    found = tier != "no_match"
+    result = {"video": str(path), "query": query, "start": start, "end": end,
+              "found": found, "tier": tier}
+
+    def human():
+        console.print()
+        if found:
+            console.print(f"  [bold]{start:.1f}s → {end:.1f}s[/bold]  [muted]{path.name}[/muted]")
+            console.print(f"  [muted]“{query}”[/muted]\n")
+        else:
+            console.print(f"  [warn]not found[/warn] — “{query}” didn't match anything in {path.name}\n")
+
+    emit(result, human)
+
+
 @app.command()
 def serve(
     port: int = typer.Option(8000, "--port"),
@@ -307,14 +396,14 @@ def engine_install():
     )
 
 
-@app.command()
+@app.command(hidden=True)
 def index(
     inputs: list[str] = typer.Argument(..., help="Video files, folders, or YouTube/HTTP URLs."),
     stt: bool = typer.Option(False, "--stt", help="Also index speech (faster-whisper)."),
     background: bool = typer.Option(False, "--async", help="Detach; returns a job id for `marlin status`."),
     job: str = typer.Option("", "--job", hidden=True),
 ):
-    """Caption + embed videos into the local index (resume-safe)."""
+    """[WIP / experimental] Caption + embed a folder into a local library index. Not finalized — see README roadmap."""
     from . import jobs as jobs_mod
     from .indexer import IndexStats, index_videos
     from .ingest import resolve_inputs
@@ -375,8 +464,8 @@ def index(
     emit(result, human)
 
 
-@app.command()
-def find(
+@app.command(hidden=True)
+def search(
     query: str = typer.Argument(..., help="What to find, in plain language."),
     in_path: str = typer.Option("", "--in", help="Scope to a folder/file (indexes it first if needed)."),
     k: int = typer.Option(5, "-k", help="Number of results."),
@@ -384,7 +473,7 @@ def find(
     clip: bool = typer.Option(False, "--clip", help="Trim result clips to ./marlin_clips/."),
     open_player: bool = typer.Option(False, "--open", help="Open the top clip in a player."),
 ):
-    """Find when something happens across your indexed footage."""
+    """[WIP / experimental] Search a whole folder library (two-stage retrieval). Not finalized — see README roadmap."""
     from .indexer import index_videos
     from .ingest import resolve_inputs
     from .search import search as run_search
@@ -443,9 +532,9 @@ def find(
     emit({"query": query, "results": results}, human)
 
 
-@app.command()
+@app.command(hidden=True)
 def status(job_id: str = typer.Argument("", help="Job id (omit to list all jobs)")):
-    """Check background index jobs."""
+    """[WIP] Check background index jobs (used by the experimental index/search)."""
     from . import jobs as jobs_mod
 
     if job_id:
@@ -461,10 +550,10 @@ def status(job_id: str = typer.Argument("", help="Job id (omit to list all jobs)
 
 
 def _skill_source() -> Path:
-    packaged = Path(__file__).parent / "skills" / "video-search" / "SKILL.md"
+    packaged = Path(__file__).parent / "skills" / "video-understanding" / "SKILL.md"
     if packaged.is_file():
         return packaged
-    repo = Path(__file__).resolve().parents[2] / "skills" / "video-search" / "SKILL.md"
+    repo = Path(__file__).resolve().parents[2] / "skills" / "video-understanding" / "SKILL.md"
     return repo
 
 
@@ -473,7 +562,7 @@ def skills_install(
     target: str = typer.Option("auto", "--target", help="auto | claude | agents"),
     global_install: bool = typer.Option(False, "--global", help="Install to ~ instead of the project."),
 ):
-    """Install the video-search SKILL.md into your agent's skills directory."""
+    """Install the video-understanding SKILL.md into your agent's skills directory."""
     src = _skill_source()
     if not src.is_file():
         emit({"error": "bundled SKILL.md not found"},
@@ -483,11 +572,11 @@ def skills_install(
     base = Path.home() if global_install else Path.cwd()
     dests: list[Path] = []
     if target in ("auto", "claude") and (target == "claude" or (base / ".claude").is_dir() or global_install):
-        dests.append(base / ".claude" / "skills" / "video-search" / "SKILL.md")
+        dests.append(base / ".claude" / "skills" / "video-understanding" / "SKILL.md")
     if target in ("auto", "agents"):
-        dests.append(base / ".agents" / "skills" / "video-search" / "SKILL.md")
+        dests.append(base / ".agents" / "skills" / "video-understanding" / "SKILL.md")
     if not dests:
-        dests.append(base / ".claude" / "skills" / "video-search" / "SKILL.md")
+        dests.append(base / ".claude" / "skills" / "video-understanding" / "SKILL.md")
 
     installed = []
     for d in dests:
