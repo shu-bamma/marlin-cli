@@ -151,6 +151,16 @@ def install_mlx(log) -> None:
             "uv not found — install it first: curl -LsSf https://astral.sh/uv/install.sh | sh"
         )
     ENGINES_DIR.mkdir(parents=True, exist_ok=True)
+    venv = MLX_ENGINE_DIR / ".venv"
+
+    # Number the perceptible phases up front so the spinner can show "[k/N]".
+    # clone + venv are skipped on a re-run, hence the conditional total.
+    total = 2 + (0 if (MLX_ENGINE_DIR / ".git").is_dir() else 1) + (0 if venv.is_dir() else 1)
+    state = {"k": 0}
+
+    def step(label):
+        state["k"] += 1
+        log(f"[{state['k']}/{total}] {label}")
 
     def run(cmd, cwd=None, env=None):
         # Always capture: the installer stays quiet behind one spinner line;
@@ -162,26 +172,24 @@ def install_mlx(log) -> None:
         return r
 
     if not (MLX_ENGINE_DIR / ".git").is_dir():
-        log("cloning the engine")
+        step("cloning the fork")
         run(["git", "clone", "--depth", "1", "-b", SGLANG_BRANCH, SGLANG_FORK, str(MLX_ENGINE_DIR)])
 
-    venv = MLX_ENGINE_DIR / ".venv"
     if not venv.is_dir():
-        log("creating the Python 3.12 venv")
+        step("creating the Python 3.12 venv")
         run(["uv", "venv", "-p", "3.12", str(venv)], cwd=str(MLX_ENGINE_DIR))
 
     # The fork ships Apple/Metal build extras as pyproject_other.toml; select it.
     pp = MLX_ENGINE_DIR / "python" / "pyproject.toml"
     pp_other = MLX_ENGINE_DIR / "python" / "pyproject_other.toml"
     if pp_other.is_file():
-        log("selecting the build profile")
         pp.unlink(missing_ok=True)
         pp_other.rename(pp)
 
     py = str(mlx_python())
-    log("building the Metal extension (slowest step)")
+    step("compiling the Metal kernel (slowest)")
     run(["uv", "pip", "install", "--python", py, "-e", "python[all_mps]"], cwd=str(MLX_ENGINE_DIR))
-    log("installing MLX + video deps")
+    step("downloading MLX + video deps")
     run(["uv", "pip", "install", "--python", py, "--upgrade",
          "mlx", "mlx-lm", "mlx-vlm", "transformers>=5.7.0", "torchcodec",
          "qwen-vl-utils>=0.0.14", "av", "huggingface-hub>=1.18.0"])
@@ -199,7 +207,6 @@ def install_mlx(log) -> None:
             cwd=site, capture_output=True, text=True,
         ).returncode == 0
         if not already:
-            log("patching mlx_lm")
             run(["patch", "-p0", "-i", str(patch)], cwd=site)
 
 

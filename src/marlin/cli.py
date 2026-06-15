@@ -13,7 +13,7 @@ from rich.table import Table
 
 from . import __version__, config as cfg_mod
 from .config import Config, DEFAULT_LOCAL_URL, DEFAULT_MODEL
-from .output import banner, console, emit, err_console, is_json, set_json, spinner
+from .output import banner, build_spinner, console, emit, err_console, is_json, set_json, spinner
 from .output import status as echo
 
 app = typer.Typer(add_completion=False, rich_markup_mode="rich")
@@ -149,7 +149,7 @@ def _do_setup(
         else:
             console.print()
             try:
-                with spinner("building the local engine — SGLang-MLX (Metal), one time") as log:
+                with build_spinner("building the local engine (one time)") as log:
                     engines.install_mlx(log=log)
             except RuntimeError as e:
                 build_error = str(e)

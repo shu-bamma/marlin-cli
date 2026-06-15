@@ -118,3 +118,31 @@ def spinner(title: str, *, fish: bool = False):
         name, style = ("marlin", "#FF644E") if fish else ("dots", "model")
         with err_console.status(f"[model]{title}…[/model]", spinner=name, spinner_style=style) as st:
             yield lambda m: st.update(f"[model]{title} — {m}…[/model]")
+
+
+@contextmanager
+def build_spinner(title: str):
+    """Spinner + live elapsed clock for an opaque multi-minute build.
+
+    No %-bar on purpose: the heavy phases (Metal-kernel compile, PyTorch/MLX
+    download) expose no parseable progress and vary by machine, so a fill-bar
+    would stall near 100%. Callers pass "[k/N] phase" labels via the yielded
+    ``log``; the elapsed clock proves it's still moving. Agent/JSON mode: plain
+    dim stderr lines.
+    """
+    if is_json():
+        err_console.print(f"[muted]{title}…[/muted]")
+        yield lambda m: err_console.print(f"[muted]  {m}[/muted]")
+    else:
+        from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+
+        with Progress(
+            SpinnerColumn(spinner_name="dots", style="#E76F57"),
+            TextColumn("[model]{task.description}[/model]"),
+            TextColumn("[muted]·[/muted]"),
+            TimeElapsedColumn(),
+            console=err_console,
+            transient=True,
+        ) as prog:
+            task = prog.add_task(title, total=None)
+            yield lambda m: prog.update(task, description=f"{title} — {m}")

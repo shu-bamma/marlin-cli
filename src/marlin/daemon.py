@@ -108,8 +108,8 @@ def ensure_running(cfg: Config, log) -> None:
     if eng == "hosted":
         return
     if eng == "mlx" and not engines.engine_ready(eng):
-        from .output import spinner
-        with spinner("building the local engine — SGLang-MLX (Metal), one time") as slog:
+        from .output import build_spinner
+        with build_spinner("building the local engine (one time)") as slog:
             engines.install_mlx(slog)
     if not probe(cfg.base_url, cfg.api_key):
         start(cfg, log)
