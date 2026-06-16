@@ -140,6 +140,18 @@ def _do_setup(
 
     path = cfg_mod.save(cfg)
 
+    # Soft lead-capture: one-time Google sign-in, skippable. Only prompts once the
+    # provider is live on Supabase, so it's a no-op until Google is enabled.
+    if interactive:
+        from . import auth
+        if not auth.email() and auth.google_enabled():
+            ans = typer.prompt("  Sign in with Google for access + updates? [Y/n]", default="Y").strip().lower()
+            if not ans.startswith("n"):
+                try:
+                    auth.login(log=echo)
+                except RuntimeError as e:
+                    err_console.print(f"  [warn]sign-in skipped[/warn] — {e}")
+
     # Local: build the engine inline so onboarding is one command to ready
     # (Ollama-style). Skips if already built or --no-build; agents build via
     # `marlin engine install` or auto-build on the first find.
@@ -346,6 +358,33 @@ def stop():
 
     info = daemon.stop(log=echo)
     emit(info, lambda: console.print("[ok]stopped[/ok]" if info.get("stopped") else "no running engine"))
+
+
+@app.command()
+def login(force: bool = typer.Option(False, "--force", help="Re-run sign-in even if already signed in.")):
+    """Sign in with Google — for weight access + product updates."""
+    from . import auth
+
+    existing = auth.email()
+    if existing and not force:
+        emit({"email": existing, "already": True},
+             lambda: console.print(f"  [ok]✓[/ok] signed in as [bold]{existing}[/bold] [muted](--force to switch)[/muted]"))
+        return
+    try:
+        info = auth.login(log=echo)
+    except RuntimeError as e:
+        emit({"error": str(e)}, lambda: err_console.print(f"  [err]sign-in failed[/err] — {e}"))
+        raise typer.Exit(1)
+    emit(info, lambda: console.print(f"\n  [ok]✓[/ok] signed in as [bold]{info.get('email')}[/bold]\n"))
+
+
+@app.command()
+def logout():
+    """Sign out (clears the local session)."""
+    from . import auth
+
+    out = auth.logout()
+    emit({"signed_out": out}, lambda: console.print("  [ok]✓[/ok] signed out" if out else "  not signed in"))
 
 
 engine_app = typer.Typer(no_args_is_help=True)
