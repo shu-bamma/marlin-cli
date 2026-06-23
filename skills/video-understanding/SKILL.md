@@ -60,11 +60,11 @@ Two verbs, each on a **single clip**, each `--json`:
 
 ## First run
 
-Install and first-run in one command:
 ```bash
-uv tool install nemostation && marlin
+uv tool install nemostation   # install
+marlin setup                  # first-run: Google sign-in, hardware detection, engine build (~5 min, one time)
 ```
-`marlin` auto-onboards on first run: Google sign-in (opens the browser), hardware detection, and local engine build (a few minutes). The weights are public — no Hugging Face account needed.
+Weights are public — no Hugging Face account needed. Any `marlin` command also auto-setups on first use.
 
 ## Errors → fixes
 

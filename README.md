@@ -7,8 +7,9 @@ grounding). Runs **free and local** on Apple Silicon (MLX) or NVIDIA (vLLM) —
 no API key, no network for inference.
 
 ```bash
-uv tool install nemostation && marlin    # install + first-run setup (sign in, detect hardware, build engine)
-marlin caption clip.mp4                  # describe what's in a video
+uv tool install nemostation   # install
+marlin setup                  # first-run: sign in with Google, detect hardware, build engine
+marlin caption clip.mp4       # describe what's in a video
 marlin find clip.mp4 "a deer crossing"   # locate when it happens → start → end
 ```
 
