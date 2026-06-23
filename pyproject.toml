@@ -1,6 +1,6 @@
 [project]
 name = "nemostation"
-version = "0.1.9"
+version = "0.1.10"
 description = "Find moments in your videos. Agent-first CLI for Marlin-2B: dense captioning + temporal grounding, local or hosted."
 readme = "README.md"
 requires-python = ">=3.10"

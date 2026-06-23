@@ -60,7 +60,11 @@ Two verbs, each on a **single clip**, each `--json`:
 
 ## First run
 
-No separate setup — the first `marlin` command onboards: a one-time **Google sign-in** (opens the browser), then it detects Apple Silicon / NVIDIA and builds the local engine (a few minutes). The weights are public — no Hugging Face account needed.
+Install and first-run in one command:
+```bash
+uv tool install nemostation && marlin
+```
+`marlin` auto-onboards on first run: Google sign-in (opens the browser), hardware detection, and local engine build (a few minutes). The weights are public — no Hugging Face account needed.
 
 ## Errors → fixes
 
