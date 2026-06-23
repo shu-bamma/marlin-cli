@@ -60,7 +60,7 @@ Two verbs, each on a **single clip**, each `--json`:
 
 ## First run
 
-No separate setup — the first `marlin` command onboards (detects Apple Silicon / NVIDIA, builds the local engine once, a few minutes). On Apple Silicon the weights are gated; if a `403` prints, open the access-form link it shows (1-click) and retry.
+No separate setup — the first `marlin` command onboards: a one-time **Google sign-in** (opens the browser), then it detects Apple Silicon / NVIDIA and builds the local engine (a few minutes). The weights are public — no Hugging Face account needed.
 
 ## Errors → fixes
 
@@ -70,7 +70,7 @@ No separate setup — the first `marlin` command onboards (detects Apple Silicon
 | `not a file` | pass a path to one video file. |
 | `ffmpeg/ffprobe not found` | `brew install ffmpeg` (macOS) / `apt install ffmpeg`. |
 | `Connection refused` / `APIConnectionError` | local engine not up → `marlin serve` (it also auto-starts on the first call). |
-| `403` / gated repo | open the printed MLX access-form link, approve (1-click), retry. |
+| `sign-in required` | run `marlin login` (opens the browser) to sign in with Google. |
 
 ## When NOT to use
 

@@ -8,7 +8,7 @@ no API key, no network for inference.
 
 ```bash
 uv tool install nemostation              # or: pipx install nemostation
-marlin                                   # first run: detect Apple Silicon/NVIDIA + build the engine
+marlin                                   # first run: sign in with Google, detect Apple Silicon/NVIDIA, build the engine
 marlin caption clip.mp4                  # describe what's in a video
 marlin find clip.mp4 "a deer crossing"   # locate when it happens → start → end
 ```
@@ -45,10 +45,11 @@ verb honors `--json` (stdout parseable, progress on stderr). See
 |---|---|---|
 | engine | SGLang-MLX | vLLM |
 | serve | auto-starts on first `caption`/`find` (or `marlin serve`) | same |
-| weights | gated — 1-click access form | gated — 1-click form |
+| weights | public — `Marlin-2B-MLX-8bit` | public |
 
-No API key — inference is local. A hosted `base_url` swap lives in `deploy/`
-for a future skill; it's not surfaced in the CLI yet.
+No API key, no Hugging Face account — inference is local and the weights are
+public. First run does one **Google sign-in** (so we can send you updates). A
+hosted `base_url` swap lives in `deploy/` for a future skill; not surfaced yet.
 
 ## Roadmap
 

@@ -13,7 +13,7 @@ from rich.table import Table
 
 from . import __version__, config as cfg_mod
 from .config import Config, DEFAULT_LOCAL_URL, DEFAULT_MODEL
-from .output import banner, build_spinner, console, emit, err_console, gated_notice, is_json, set_json, spinner
+from .output import banner, build_spinner, console, emit, err_console, is_json, set_json, spinner
 from .output import status as echo
 
 app = typer.Typer(add_completion=False, rich_markup_mode="rich")
@@ -50,6 +50,24 @@ def _require_config() -> Config:
         "(or set MARLIN_BASE_URL for non-interactive use)"
     )
     raise typer.Exit(2)
+
+
+def _require_signin() -> None:
+    """Required Google sign-in for interactive use. Agents (piped/--json) and
+    non-tty sessions pass through — you can't browser-auth a pipe, and the model
+    is public. No-op once signed in, or if the provider isn't live."""
+    from . import auth
+
+    if auth.email() or is_json() or not sys.stdin.isatty():
+        return
+    if auth.google_enabled() is False:
+        return
+    console.print("  [bold]Sign in with Google to use Marlin[/bold] [muted](one click — opens your browser)[/muted]")
+    try:
+        auth.login(log=echo)
+    except RuntimeError as e:
+        err_console.print(f"  [err]sign-in required[/err] — {e}")
+        raise typer.Exit(1)
 
 
 def _platform_human(p: str) -> str:
@@ -140,17 +158,8 @@ def _do_setup(
 
     path = cfg_mod.save(cfg)
 
-    # Soft lead-capture: one-time Google sign-in, skippable. Only prompts once the
-    # provider is live on Supabase, so it's a no-op until Google is enabled.
-    if interactive:
-        from . import auth
-        if not auth.email() and auth.google_enabled():
-            ans = typer.prompt("  Sign in with Google for access + updates? [Y/n]", default="Y").strip().lower()
-            if not ans.startswith("n"):
-                try:
-                    auth.login(log=echo)
-                except RuntimeError as e:
-                    err_console.print(f"  [warn]sign-in skipped[/warn] — {e}")
+    # Required Google sign-in (one-time, lead capture). Interactive only.
+    _require_signin()
 
     # Local: build the engine inline so onboarding is one command to ready
     # (Ollama-style). Skips if already built or --no-build; agents build via
@@ -169,7 +178,6 @@ def _do_setup(
 
     reachable = probe(cfg.base_url, cfg.api_key)
     ready = engines.engine_ready(eng)
-    access = engines.weights_accessible(cfg) if eng == "mlx" else None
 
     result = {
         "configured": True, "mode": cfg.mode, "engine": eng, "base_url": cfg.base_url,
@@ -178,8 +186,6 @@ def _do_setup(
     }
     if eng == "mlx":
         result["weights"] = cfg.mlx_weights
-        result["weights_access"] = access
-        result["access_form"] = engines.MLX_ACCESS_URL
     if build_error:
         result["build_error"] = build_error
 
@@ -203,9 +209,6 @@ def _do_setup(
         else:
             console.print("  [muted]engine builds on your first search (or run: marlin engine install)[/muted]")
 
-        if eng == "mlx" and access is not True:
-            gated_notice(engines.MLX_ACCESS_URL)
-            return
         if eng == "mlx":
             console.print("  [ok]✓[/ok] weights ready")
         _next_steps()
@@ -233,6 +236,7 @@ def _ready_clip(video: str):
     from . import daemon, engines
 
     cfg = _require_config()
+    _require_signin()
     path = Path(video)
     if not path.is_file():
         emit({"error": f"not a file: {video}"},
@@ -241,11 +245,7 @@ def _ready_clip(video: str):
     try:
         daemon.ensure_running(cfg, log=echo)
     except RuntimeError as e:
-        if "gated" in str(e).lower():  # friendly form-link, not a red error wall
-            emit({"error": "weights_gated", "access_form": engines.MLX_ACCESS_URL},
-                 lambda: gated_notice(engines.MLX_ACCESS_URL))
-        else:
-            emit({"error": str(e)}, lambda: err_console.print(f"[err]{e}[/err]"))
+        emit({"error": str(e)}, lambda: err_console.print(f"[err]{e}[/err]"))
         raise typer.Exit(2)
     return cfg, path
 
@@ -336,8 +336,6 @@ def serve(
         raise typer.Exit(2)
     if not engines.engine_ready(eng):
         err_console.print(f"[err]{eng} engine not installed[/err] — run [bold]marlin engine install[/bold]")
-        if eng == "mlx":
-            err_console.print(f"MLX weights are gated — request access: {engines.MLX_ACCESS_URL}")
         raise typer.Exit(2)
 
     if detach:
@@ -419,21 +417,14 @@ def engine_install():
                  lambda: err_console.print(f"  [err]✗ build failed[/err] — {str(e).strip().splitlines()[-1][:120]}"))
             raise typer.Exit(1)
 
-    access = engines.weights_accessible(cfg_mod.load())
-
     def human():
         console.print("  [ok]✓[/ok] engine ready" + (" [muted](already built)[/muted]" if already else ""))
-        if access is True:
-            console.print("  [ok]✓[/ok] weights ready")
-        else:
-            console.print("  [warn]⚠[/warn] approve 1-click weight access (free):")
-            console.print(f"      [link]{engines.MLX_ACCESS_URL}[/link]")
+        console.print("  [ok]✓[/ok] weights ready")
         _next_steps()
 
     emit(
         {"engine": "mlx", "installed": True, "already_built": already,
-         "weights": cfg_mod.load().mlx_weights, "weights_access": access,
-         "access_form": engines.MLX_ACCESS_URL},
+         "weights": cfg_mod.load().mlx_weights},
         human,
     )
 

@@ -30,7 +30,7 @@ class Config:
     api_key: str = ""
     model: str = DEFAULT_MODEL
     engine: str = "auto"  # auto | mlx | vllm | hosted — how/where Marlin runs locally
-    mlx_weights: str = "NemoStation/Marlin-2B-MLX-8bit"  # gated MLX repo (Apple Silicon)
+    mlx_weights: str = "NemoStation/Marlin-2B-MLX-8bit"  # public MLX repo (Apple Silicon)
     embed_model: str = "BAAI/bge-small-en-v1.5"
     chunk_seconds: float = 30.0
     chunk_overlap: float = 5.0

@@ -21,9 +21,8 @@ from pathlib import Path
 
 from .config import CONFIG_DIR, Config
 
-# Gated MLX weights — same HF access form as the base model (high-signal leads).
+# Public MLX weights (Apple Silicon) — same repo string as cfg.mlx_weights.
 MLX_REPO = "NemoStation/Marlin-2B-MLX-8bit"
-MLX_ACCESS_URL = f"https://huggingface.co/{MLX_REPO}"
 
 # Apple-Silicon multimodal SGLang support lives on this fork branch until upstream.
 SGLANG_FORK = "https://github.com/Itssshikhar/sglang"
@@ -223,31 +222,3 @@ def install_mlx(log) -> None:
                 "mlx_lm tied-lm_head patch did not apply cleanly "
                 "(mlx_lm may have drifted from the fork's patch)"
             )
-
-
-# ── weight access ───────────────────────────────────────────────────────────────
-
-def weights_accessible(cfg: Config) -> bool | None:
-    """Can this user actually DOWNLOAD the gated MLX weights? True yes, False if
-    gated-and-not-granted (or no token), None if undeterminable.
-
-    Uses HfApi.auth_check, which tests *download* access. NOT model_info — gated
-    repos stay publicly visible, so model_info returns 200 for users who haven't
-    been granted access and would false-positive "weights ready" at setup, only
-    to 403 at first download. auth_check is the right gate. Never raises.
-    """
-    try:
-        from huggingface_hub import HfApi, get_token
-        from huggingface_hub.utils import GatedRepoError, RepositoryNotFoundError
-    except Exception:
-        return None
-    check = getattr(HfApi(), "auth_check", None)
-    if check is None:
-        return None  # hub too old to tell → setup prompts to be safe
-    try:
-        check(cfg.mlx_weights, token=get_token())
-        return True
-    except (GatedRepoError, RepositoryNotFoundError):
-        return False
-    except Exception:
-        return None

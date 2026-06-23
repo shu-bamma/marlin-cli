@@ -87,19 +87,6 @@ def status(msg: str) -> None:
     err_console.print(f"[dim]{msg}[/dim]")
 
 
-def gated_notice(url: str) -> None:
-    """Friendly 'approve weight access' block — neutral text, only the link in accent.
-
-    Shown at setup (and as a fallback if a download 403s). Tone: one more step,
-    not an error wall.
-    """
-    console.print()
-    console.print("  [bold]Just one more step.[/bold] [muted]Marlin-2B's weights are free, but gated.[/muted]")
-    console.print(f"  [muted]Approve access (1 click) →[/muted] [link]{url}[/link]")
-    console.print("  [muted]…then re-run. (First time on this machine? run[/muted] [bold]hf auth login[/bold] [muted]too.)[/muted]")
-    console.print()
-
-
 def banner() -> None:
     """First-run / version hero — the gradient block wordmark (design ②).
 
