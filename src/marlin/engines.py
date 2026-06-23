@@ -116,7 +116,10 @@ def serve_command(cfg: Config, engine: str, port: int = LOCAL_PORT) -> tuple[lis
         argv = [
             str(mlx_python()), "-m", "sglang.launch_server",
             "--model-path", cfg.mlx_weights,
-            "--tokenizer-path", cfg.model,
+            # Tokenizer comes from the MLX repo too — it's self-contained (bundles
+            # tokenizer.json + config + modeling_marlin.py). cfg.model is the GATED
+            # base repo; pointing the tokenizer there 403s on machines with no HF token.
+            "--tokenizer-path", cfg.mlx_weights,
             "--served-model-name", cfg.model,
             "--trust-remote-code", "--enable-multimodal",
             "--disable-cuda-graph", "--disable-radix-cache", "--disable-overlap-schedule",
