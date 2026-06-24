@@ -65,6 +65,38 @@ Installs the `video-understanding` skill so Claude Code / Codex use `marlin` as
 "eyes on a video" — clip-length and single-find limits baked in. Every verb
 honors `--json` (stdout parseable, progress on stderr).
 
+## Contributing
+
+Marlin is meant to be extended — and **adding a skill is the easiest way in**. A
+skill is a folder under [`skills/`](https://github.com/shu-bamma/marlin-cli/tree/main/skills)
+with a `SKILL.md` that teaches an agent to use `caption` / `find` for one job —
+clip scoring, b-roll search, highlight reels, footage catalogs, whatever you build.
+
+```
+skills/
+  video-understanding/SKILL.md   # ships today — the reference
+  your-skill/SKILL.md            # ← add yours
+```
+
+**Add one:**
+
+1. Copy the format from [`video-understanding/SKILL.md`](https://github.com/shu-bamma/marlin-cli/blob/main/skills/video-understanding/SKILL.md)
+   — frontmatter (`name`, `description`, `requires.bins`) + a short recipe.
+2. Keep it honest about the limits (one bounded clip per call; `find` returns one span).
+3. Open a PR. New skill ideas, issues, and docs fixes are all welcome too.
+
+**Hack on the CLI:**
+
+```bash
+git clone https://github.com/shu-bamma/marlin-cli
+cd marlin-cli
+uv tool install --editable .     # or: pip install -e .
+pytest                           # contract tests
+```
+
+New verbs, engine support, and bug fixes are all fair game — open an issue to
+chat about anything bigger. Licensed under **Apache-2.0**.
+
 ## Links
 
 - **Try it live** → [vlm.nemostation.com](https://vlm.nemostation.com/)
