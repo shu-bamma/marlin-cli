@@ -39,23 +39,31 @@ Installs the `video-understanding` skill so Claude Code / Codex use marlin as
 verb honors `--json` (stdout parseable, progress on stderr). See
 `skills/video-understanding/SKILL.md`.
 
-## How it runs (auto-detected, local)
+## How it runs (Apple Silicon, local)
 
-| | Apple Silicon | NVIDIA |
-|---|---|---|
-| engine | SGLang-MLX | vLLM |
-| serve | auto-starts on first `caption`/`find` (or `marlin serve`) | same |
-| weights | public — `Marlin-2B-MLX-8bit` | public |
+| | Apple Silicon (Mac) |
+|---|---|
+| engine | SGLang-MLX |
+| serve | auto-starts on first `caption`/`find` (or `marlin serve`) |
+| weights | public — `Marlin-2B-MLX-8bit` (8-bit, no Hugging Face account) |
+
+**Apple-Silicon only for now.** The CLI ships the Metal (MLX) build — the
+validated, public, 8-bit path. NVIDIA/other machines get a clear "coming
+soon" message; an optimized NVIDIA build will ship as a separate release.
 
 No API key, no Hugging Face account — inference is local and the weights are
-public. First run does one **Google sign-in** (so we can send you updates). A
-hosted `base_url` swap lives in `deploy/` for a future skill; not surfaced yet.
+public. First run opens your browser for a one-time **sign-in**: two quick
+questions (affiliation + what you'll use Marlin for), then Google. A hosted
+`base_url` swap lives in `deploy/` for a future skill; not surfaced yet.
 
 ## Roadmap
 
-Shipping now: local `caption` + `find` on single clips, Apple Silicon and
-NVIDIA. Next, once the storage + ranking design lands (present in the CLI today
-as hidden/experimental verbs, not finalized):
+Shipping now: local `caption` + `find` on single clips, Apple Silicon. Next,
+once the storage + ranking design lands (present in the CLI today as
+hidden/experimental verbs, not finalized):
+
+- **NVIDIA build** — an optimized non-Apple-Silicon release (separate from the
+  MLX 8-bit build that ships today).
 
 - **`index` / `search`** — caption + embed a whole folder into a local index,
   then semantic search across your library (two-stage retrieval). Database and

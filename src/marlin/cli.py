@@ -62,7 +62,7 @@ def _require_signin() -> None:
         return
     if auth.google_enabled() is False:
         return
-    console.print("  [bold]Sign in with Google to use Marlin[/bold] [muted](one click — opens your browser)[/muted]")
+    console.print("  [bold]Sign in to use Marlin[/bold] [muted](opens your browser — 2 quick questions, then Google)[/muted]")
     try:
         auth.login(log=echo)
     except RuntimeError as e:
@@ -121,17 +121,24 @@ def _do_setup(
 
     human_mode = not is_json()
 
-    # Engine = the machine, not a question. Explicit --hosted/--engine are still
-    # honored (advanced/future); otherwise local on Apple Silicon / NVIDIA.
+    # Engine = the machine, not a question. The CLI ships the Apple-Silicon (MLX)
+    # build only for now — it's the validated, public, 8-bit path. NVIDIA/other
+    # auto-detect exits gracefully; the vLLM path stays reachable via the explicit
+    # (hidden) --engine vllm flag for internal use. --hosted is also honored.
     eng = engine or ("hosted" if hosted else "")
     if not eng:
-        if detected in ("apple_silicon", "nvidia"):
-            eng = rec
+        if detected == "apple_silicon":
+            eng = rec  # mlx
         else:
             err_console.print(
-                "[err]no local GPU[/err] — Marlin runs locally on Apple Silicon or NVIDIA; "
-                "neither detected here. [muted](hosted API coming later)[/muted]"
+                "  [warn]Apple Silicon only for now[/warn] — Marlin's CLI ships the "
+                "Metal (MLX) build, which needs an Apple-Silicon Mac."
             )
+            if detected == "nvidia":
+                err_console.print(
+                    "  [muted]NVIDIA detected — an optimized NVIDIA build is coming as a "
+                    "separate release.[/muted]"
+                )
             raise typer.Exit(2)
     interactive = human_mode and not non_interactive
 
@@ -226,7 +233,7 @@ def setup(
     base_url: str = typer.Option("", "--base-url", hidden=True),
     api_key: str = typer.Option("", "--api-key", hidden=True),
 ):
-    """Set up marlin to run locally — auto-detects Apple Silicon (MLX) or NVIDIA (vLLM)."""
+    """Set up marlin to run locally on Apple Silicon (Metal/MLX)."""
     _do_setup(engine=engine, build=build, non_interactive=non_interactive,
               local=local, hosted=hosted, base_url=base_url, api_key=api_key)
 
@@ -360,7 +367,7 @@ def stop():
 
 @app.command()
 def login(force: bool = typer.Option(False, "--force", help="Re-run sign-in even if already signed in.")):
-    """Sign in with Google — for weight access + product updates."""
+    """Sign in — two quick questions, then Google (one time)."""
     from . import auth
 
     existing = auth.email()
