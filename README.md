@@ -1,15 +1,17 @@
-# Marlin
+<p align="center">
+  <img src="https://raw.githubusercontent.com/shu-bamma/marlin-cli/main/assets/marlin-wordmark.png" width="440" alt="Marlin — video understanding on your Mac"/>
+</p>
 
-**Video understanding on your Mac.** `marlin` is the command-line tool for
-[**Marlin-2B**](https://huggingface.co/NemoStation/Marlin-2B) — a 2B video VLM
-for the two questions you actually ask a video: **what** is happening, and
-**when**. Runs free and local on Apple Silicon — no API key, no Hugging Face account.
-
-<p>
+<p align="center">
   <a href="https://vlm.nemostation.com/"><img src="https://img.shields.io/badge/▶_Try_it_live-Gradio_demo-FF6B35?style=for-the-badge" alt="Try it live"/></a>
   <a href="https://huggingface.co/NemoStation/Marlin-2B"><img src="https://img.shields.io/badge/🤗_Model-Marlin--2B-FFD21E?style=for-the-badge" alt="Hugging Face"/></a>
   <a href="https://pypi.org/project/nemostation/"><img src="https://img.shields.io/pypi/v/nemostation?style=for-the-badge&color=7DD3FC&label=pip%20install" alt="PyPI"/></a>
 </p>
+
+**The command-line tool for [Marlin-2B](https://huggingface.co/NemoStation/Marlin-2B)** —
+a 2B video VLM for the two questions you actually ask a video: **what** is
+happening, and **when**. Runs free and local on Apple Silicon — no API key, no
+Hugging Face account.
 
 - **`marlin caption`** → a Scene description + a `<start>–<end>` event timeline
 - **`marlin find`** → the single `start → end` span where your query happens
@@ -32,13 +34,16 @@ detects your Mac, and builds the local MLX engine. The 8-bit weights are
 
 ## What it produces
 
-**`marlin caption "video.mp4"`** — *what's in it*
-
-![Marlin caption example](https://huggingface.co/datasets/NemoStation/marlin-assets/resolve/main/caption_example.jpg)
-
-**`marlin find "video.mp4", "gunfight"`** — *when it happens*
-
-![Marlin find example](https://huggingface.co/datasets/NemoStation/marlin-assets/resolve/main/find_example.jpg)
+<table>
+<tr>
+<td width="50%" align="center"><code>marlin caption "video.mp4"</code> — <i>what's in it</i></td>
+<td width="50%" align="center"><code>marlin find "video.mp4", "gunfight"</code> — <i>when it happens</i></td>
+</tr>
+<tr>
+<td valign="top"><img src="https://huggingface.co/datasets/NemoStation/marlin-assets/resolve/main/caption_example.jpg" alt="Marlin caption example" width="100%"/></td>
+<td valign="top"><img src="https://huggingface.co/datasets/NemoStation/marlin-assets/resolve/main/find_example.jpg" alt="Marlin find example" width="100%"/></td>
+</tr>
+</table>
 
 Each call runs one model pass on one bounded clip (~2 min at 2 fps) — the same
 contract as the inference server. For longer videos, window with `ffmpeg` and loop.
