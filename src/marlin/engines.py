@@ -21,8 +21,24 @@ from pathlib import Path
 
 from .config import CONFIG_DIR, Config
 
-# Public MLX weights (Apple Silicon) — same repo string as cfg.mlx_weights.
+# Public MLX weights (Apple Silicon) — same repo string as cfg.mlx_weights (HF
+# canonical / fallback).
 MLX_REPO = "NemoStation/Marlin-2B-MLX-8bit"
+
+# Fast weights mirror — Azure Blob (anonymous, no HF rate limit). The CLI curls
+# these into WEIGHTS_DIR and serves the engine from there; HF is the fallback.
+# Override the mirror with MARLIN_MLX_WEIGHTS_URL.
+MLX_WEIGHTS_URL = os.environ.get(
+    "MARLIN_MLX_WEIGHTS_URL",
+    "https://marlinweights-d7btf0h4c5dxbzdk.z01.azurefd.net/weights").rstrip("/")
+WEIGHTS_DIR = CONFIG_DIR / "weights" / "marlin-2b-mlx-8bit"
+_WEIGHTS_DONE = WEIGHTS_DIR / ".complete"
+_WEIGHT_FILES = (
+    "config.json", "generation_config.json", "chat_template.jinja",
+    "model.safetensors", "model.safetensors.index.json", "modeling_marlin.py",
+    "preprocessor_config.json", "processor_config.json",
+    "tokenizer.json", "tokenizer_config.json",
+)
 
 # Apple-Silicon multimodal SGLang support lives on this fork branch until upstream.
 SGLANG_FORK = "https://github.com/Itssshikhar/sglang"
@@ -113,13 +129,14 @@ def engine_ready(engine: str) -> bool:
 def serve_command(cfg: Config, engine: str, port: int = LOCAL_PORT) -> tuple[list[str], dict]:
     """(argv, env) to launch the local OpenAI-compatible server for `engine`."""
     if engine == "mlx":
+        # Serve from the local Azure-mirrored dir when present (fast, no HF), else
+        # the HF repo id. Both are self-contained (tokenizer + processor + config +
+        # modeling_marlin.py), so model-path and tokenizer-path are the same.
+        wpath = weights_path(cfg)
         argv = [
             str(mlx_python()), "-m", "sglang.launch_server",
-            "--model-path", cfg.mlx_weights,
-            # Tokenizer comes from the MLX repo too — it's self-contained (bundles
-            # tokenizer.json + config + modeling_marlin.py). cfg.model is the GATED
-            # base repo; pointing the tokenizer there 403s on machines with no HF token.
-            "--tokenizer-path", cfg.mlx_weights,
+            "--model-path", wpath,
+            "--tokenizer-path", wpath,
             "--served-model-name", cfg.model,
             "--trust-remote-code", "--enable-multimodal",
             "--disable-cuda-graph", "--disable-radix-cache", "--disable-overlap-schedule",
@@ -138,23 +155,48 @@ def serve_command(cfg: Config, engine: str, port: int = LOCAL_PORT) -> tuple[lis
     raise ValueError(f"engine {engine!r} has no local server (hosted runs remotely)")
 
 
-def ensure_weights(cfg: Config, log) -> None:
-    """Pre-fetch the MLX weights (~2.5 GB) once, with a visible progress bar,
-    before serving — so the first run doesn't race the readiness timeout while
-    the engine silently downloads. (The repo is plain LFS and anonymous HF pulls
-    are rate-limited, so it can be slow — but at least it's visible, resumable,
-    and one-time.) Idempotent; fast no-op once cached. Runs in the engine's venv
-    (which has huggingface_hub); never fatal — the engine retries on start."""
-    py = mlx_python()
-    if not py.is_file():
-        return  # engine not built yet; caller builds first
-    log(f"fetching {cfg.mlx_weights.split('/')[-1]} weights (one-time, ~2.5 GB — resumable)…")
-    code = "import sys; from huggingface_hub import snapshot_download; snapshot_download(sys.argv[1])"
+def _remote_size(url: str) -> "int | None":
     try:
-        subprocess.run([str(py), "-c", code, cfg.mlx_weights],
-                       check=True, stdin=subprocess.DEVNULL)
-    except subprocess.CalledProcessError:
-        log("weight pre-fetch incomplete — the engine will finish it on start")
+        r = subprocess.run(["curl", "-fsSLI", url], capture_output=True, text=True, timeout=30)
+        for line in r.stdout.splitlines():
+            if line.lower().startswith("content-length:"):
+                return int(line.split(":", 1)[1].strip())
+    except Exception:
+        pass
+    return None
+
+
+def ensure_weights(cfg: Config, log) -> None:
+    """Fetch the MLX weights (~2.5 GB) from the NemoStation Azure mirror into a
+    local dir before serving. Anonymous Azure Blob is fast (HF anonymous pulls
+    are rate-limited); the engine then serves from the local dir. Per-file resume
+    (curl -C -) + skip-if-complete (size match); idempotent. Never fatal — if the
+    mirror can't be reached, serve falls back to the HF repo id."""
+    if _WEIGHTS_DONE.exists():
+        return
+    WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
+    announced = False
+    for f in _WEIGHT_FILES:
+        dest = WEIGHTS_DIR / f
+        url = f"{MLX_WEIGHTS_URL}/{f}"
+        rsize = _remote_size(url)
+        if dest.exists() and rsize is not None and dest.stat().st_size == rsize:
+            continue  # already complete
+        if not announced:
+            log("fetching Marlin-2B weights from the NemoStation mirror (one-time, ~2.5 GB — resumable)…")
+            announced = True
+        try:
+            subprocess.run(["curl", "-fSL", "--retry", "3", "-C", "-", "-o", str(dest), url],
+                           check=True, stdin=subprocess.DEVNULL)
+        except subprocess.CalledProcessError:
+            log(f"  weight download incomplete ({f}) — re-run to resume (serve falls back to Hugging Face)")
+            return
+    _WEIGHTS_DONE.write_text("ok\n")
+
+
+def weights_path(cfg: Config) -> str:
+    """Local Azure-mirrored weights dir if complete, else the HF repo id (fallback)."""
+    return str(WEIGHTS_DIR) if _WEIGHTS_DONE.exists() else cfg.mlx_weights
 
 
 # ── MLX engine install ─────────────────────────────────────────────────────────
