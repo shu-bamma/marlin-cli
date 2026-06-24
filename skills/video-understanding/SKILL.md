@@ -34,6 +34,17 @@ Two verbs, each on a **single clip**, each `--json`:
 4. **Visual only.** These modes don't read audio/speech. For "what was said," use a transcription tool.
 5. **No library search.** Searching across a whole folder of videos is not in these verbs (that's the experimental `index`/`search`, not shipped — see the repo roadmap).
 
+## Resolution & memory (automatic)
+
+Marlin's per-frame budget is **~200K pixels** (≈448², 2 fps). The CLI **auto-downscales** the clip to that budget before inference — mirroring the model's own `smart_resize` — so a 1080p/4K clip is decoded *small*: **much faster and far less memory, with no accuracy loss** (the model would resize to this anyway, just after a costly full-res decode that can OOM a laptop). You don't have to do anything; it's on by default.
+
+Optional knobs on `caption`/`find`:
+- `--max-pixels N` — **lower it on memory-constrained machines** (e.g. `--max-pixels 100000`). Raising it above ~200K has no effect (the server caps there).
+- `--fps F` — frames/sec sampled (default 2.0, the model's rate).
+- `--full-res` — skip the downscale, send the original (rarely needed).
+
+Downscaling uses `ffmpeg`; without it the clip is sent as-is (server still resizes, just slower). It stacks with windowing for long videos.
+
 ## Output contracts
 
 `marlin caption <video> --json`:

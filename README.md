@@ -51,7 +51,10 @@ free the RAM (~16 GB): **`marlin stop`**. It auto-starts again on the next call.
 </table>
 
 Each call runs one model pass on one bounded clip (~2 min at 2 fps) — the same
-contract as the inference server. For longer videos, window with `ffmpeg` and loop.
+contract as the inference server. Clips are **auto-downscaled to the model's
+~200K-pixel budget** before inference (faster, far less memory, no accuracy
+loss) — tune with `--max-pixels` (lower on weak machines) or `--full-res` to opt
+out. For longer videos, window with `ffmpeg` and loop.
 
 ## Why Marlin
 

@@ -279,12 +279,15 @@ def _ready_clip(video: str):
 def caption(
     video: str = typer.Argument(..., help="A single video file (a bounded clip, ~≤2 min)."),
     detail: bool = typer.Option(False, "--detail", help="One free-form paragraph instead of the scene + event timeline."),
+    max_pixels: int = typer.Option(200704, "--max-pixels", help="Per-frame pixel budget. Auto-downscales to it (faster, less memory); lower for weak machines. Default = the model's budget."),
+    fps: float = typer.Option(2.0, "--fps", help="Frames/sec sampled (the model uses 2.0)."),
+    full_res: bool = typer.Option(False, "--full-res", help="Send the clip at full resolution (skip the auto-downscale)."),
 ):
     """Describe what's in a video — Marlin-2B dense captioning (one clip)."""
     from .backend import Marlin
 
     cfg, path = _ready_clip(video)
-    m = Marlin(cfg)
+    m = Marlin(cfg, max_pixels=max_pixels, fps=fps, full_res=full_res)
     try:
         with spinner("captioning", fish=True):
             if detail:
@@ -296,6 +299,8 @@ def caption(
     except Exception as e:
         emit({"error": str(e)}, lambda: err_console.print(f"[err]{e}[/err]"))
         raise typer.Exit(1)
+    if m.last_note and not is_json():
+        err_console.print(f"  [muted]↓ auto-downscaled {m.last_note} for speed/memory — --full-res to keep it[/muted]")
 
     def human():
         console.print()
@@ -317,18 +322,23 @@ def caption(
 def find(
     video: str = typer.Argument(..., help="A single video file (a bounded clip, ~≤2 min)."),
     query: str = typer.Argument(..., help="What to locate, in plain language."),
+    max_pixels: int = typer.Option(200704, "--max-pixels", help="Per-frame pixel budget. Auto-downscales to it (faster, less memory); lower for weak machines. Default = the model's budget."),
+    fps: float = typer.Option(2.0, "--fps", help="Frames/sec sampled (the model uses 2.0)."),
+    full_res: bool = typer.Option(False, "--full-res", help="Send the clip at full resolution (skip the auto-downscale)."),
 ):
     """Find when something happens in a video — Marlin-2B temporal grounding (one clip)."""
     from .backend import Marlin
 
     cfg, path = _ready_clip(video)
-    m = Marlin(cfg)
+    m = Marlin(cfg, max_pixels=max_pixels, fps=fps, full_res=full_res)
     try:
         with spinner("finding the moment", fish=True):
             (start, end), tier = m.ground(path, query)
     except Exception as e:
         emit({"error": str(e)}, lambda: err_console.print(f"[err]{e}[/err]"))
         raise typer.Exit(1)
+    if m.last_note and not is_json():
+        err_console.print(f"  [muted]↓ auto-downscaled {m.last_note} for speed/memory — --full-res to keep it[/muted]")
 
     found = tier != "no_match"
     result = {"video": str(path), "query": query, "start": start, "end": end,
