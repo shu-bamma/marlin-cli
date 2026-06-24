@@ -70,6 +70,21 @@ def _require_signin() -> None:
         raise typer.Exit(1)
 
 
+def _require_index_extra() -> None:
+    """The folder index/search verbs need heavy deps (lancedb, sentence-transformers,
+    yt-dlp) that ship in the optional [index] extra, not the default install."""
+    try:
+        import lancedb  # noqa: F401
+        import sentence_transformers  # noqa: F401
+    except ImportError:
+        err_console.print(
+            r"  [err]index/search needs the optional extra[/err] — install it:" "\n"
+            r"      [bold]uv tool install 'nemostation\[index]'[/bold]  "
+            r"[muted](or: pip install 'nemostation\[index]')[/muted]"
+        )
+        raise typer.Exit(2)
+
+
 def _platform_human(p: str) -> str:
     return {
         "apple_silicon": "Apple Silicon (Metal)",
@@ -444,6 +459,7 @@ def index(
     job: str = typer.Option("", "--job", hidden=True),
 ):
     """[WIP / experimental] Caption + embed a folder into a local library index. Not finalized — see README roadmap."""
+    _require_index_extra()
     from . import jobs as jobs_mod
     from .indexer import IndexStats, index_videos
     from .ingest import resolve_inputs
@@ -514,6 +530,7 @@ def search(
     open_player: bool = typer.Option(False, "--open", help="Open the top clip in a player."),
 ):
     """[WIP / experimental] Search a whole folder library (two-stage retrieval). Not finalized — see README roadmap."""
+    _require_index_extra()
     from .indexer import index_videos
     from .ingest import resolve_inputs
     from .search import search as run_search

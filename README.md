@@ -1,74 +1,67 @@
-# marlin
+# Marlin
 
-Understand any video from the terminal. `marlin` is the agent-first CLI for
-[Marlin-2B](https://huggingface.co/NemoStation/Marlin-2B) — a 2B video VLM that
-**describes** a clip (dense captioning) and **locates** moments in it (temporal
-grounding). Runs **free and local** on Apple Silicon (MLX) or NVIDIA (vLLM) —
-no API key, no network for inference.
+**Video understanding on your Mac.** `marlin` is the command-line tool for
+[**Marlin-2B**](https://huggingface.co/NemoStation/Marlin-2B) — a 2B video VLM
+for the two questions you actually ask a video: **what** is happening, and
+**when**. Runs free and local on Apple Silicon — no API key, no Hugging Face account.
+
+<p>
+  <a href="https://vlm.nemostation.com/"><img src="https://img.shields.io/badge/▶_Try_it_live-Gradio_demo-FF6B35?style=for-the-badge" alt="Try it live"/></a>
+  <a href="https://huggingface.co/NemoStation/Marlin-2B"><img src="https://img.shields.io/badge/🤗_Model-Marlin--2B-FFD21E?style=for-the-badge" alt="Hugging Face"/></a>
+  <a href="https://pypi.org/project/nemostation/"><img src="https://img.shields.io/pypi/v/nemostation?style=for-the-badge&color=7DD3FC&label=pip%20install" alt="PyPI"/></a>
+</p>
+
+- **`marlin caption`** → a Scene description + a `<start>–<end>` event timeline
+- **`marlin find`** → the single `start → end` span where your query happens
+
+## Install
+
+> **Apple Silicon (M-series Mac) only for now.** NVIDIA / other platforms are
+> coming as a separate optimized build.
 
 ```bash
-uv tool install nemostation   # install
-marlin setup                  # first-run: sign in with Google, detect hardware, build engine
-marlin caption clip.mp4       # describe what's in a video
+uv tool install nemostation      # or: pipx install nemostation
+marlin setup                     # one-time: sign in, build the local engine
+marlin caption clip.mp4          # describe what's in a video
 marlin find clip.mp4 "a deer crossing"   # locate when it happens → start → end
 ```
 
-Add `--json` to any verb for clean, parseable output (auto when piped).
+First run opens your browser for a quick sign-in (two questions, then Google),
+detects your Mac, and builds the local MLX engine. The 8-bit weights are
+**public** — nothing gated. Add `--json` to any command for parseable output.
 
-## Two modes, one clip
+## What it produces
 
-| Verb | What it does |
-|---|---|
-| `marlin caption <video>` | scene description + a `<start>–<end>` event timeline |
-| `marlin caption <video> --detail` | one free-form paragraph |
-| `marlin find <video> "<query>"` | the single `start → end` span where the query happens |
+**`marlin caption "video.mp4"`** — *what's in it*
 
-Both run **one model call on one bounded clip** (~2 min at 2 fps) — the same
-thing the inference server does, matching Marlin's training distribution. For
-longer videos, cut overlapping windows with `ffmpeg` and run per window;
-`find` returns one span (no multi-find), so window + loop for every occurrence.
+![Marlin caption example](https://huggingface.co/datasets/NemoStation/marlin-assets/resolve/main/caption_example.jpg)
 
-## Agents
+**`marlin find "video.mp4", "gunfight"`** — *when it happens*
+
+![Marlin find example](https://huggingface.co/datasets/NemoStation/marlin-assets/resolve/main/find_example.jpg)
+
+Each call runs one model pass on one bounded clip (~2 min at 2 fps) — the same
+contract as the inference server. For longer videos, window with `ffmpeg` and loop.
+
+## Why Marlin
+
+At 2B params it's the strongest open model in its weight class on dense
+captioning (DREAM-1K, CaReBench) and natural-language temporal grounding
+(TimeLens-Bench) — competitive with Gemini-2.5 at a fraction of the cost. See
+the [benchmarks on the model card](https://huggingface.co/NemoStation/Marlin-2B).
+
+## Use it from an agent
 
 ```bash
 marlin skills install        # → .claude/skills/ + .agents/skills/
 ```
 
-Installs the `video-understanding` skill so Claude Code / Codex use marlin as
-"eyes on a video" — with the limits (clip length, single-find) baked in. Every
-verb honors `--json` (stdout parseable, progress on stderr). See
-`skills/video-understanding/SKILL.md`.
+Installs the `video-understanding` skill so Claude Code / Codex use `marlin` as
+"eyes on a video" — clip-length and single-find limits baked in. Every verb
+honors `--json` (stdout parseable, progress on stderr).
 
-## How it runs (Apple Silicon, local)
+## Links
 
-| | Apple Silicon (Mac) |
-|---|---|
-| engine | SGLang-MLX |
-| serve | auto-starts on first `caption`/`find` (or `marlin serve`) |
-| weights | public — `Marlin-2B-MLX-8bit` (8-bit, no Hugging Face account) |
-
-**Apple-Silicon only for now.** The CLI ships the Metal (MLX) build — the
-validated, public, 8-bit path. NVIDIA/other machines get a clear "coming
-soon" message; an optimized NVIDIA build will ship as a separate release.
-
-No API key, no Hugging Face account — inference is local and the weights are
-public. First run opens your browser for a one-time **sign-in**: two quick
-questions (affiliation + what you'll use Marlin for), then Google. A hosted
-`base_url` swap lives in `deploy/` for a future skill; not surfaced yet.
-
-## Roadmap
-
-Shipping now: local `caption` + `find` on single clips, Apple Silicon. Next,
-once the storage + ranking design lands (present in the CLI today as
-hidden/experimental verbs, not finalized):
-
-- **NVIDIA build** — an optimized non-Apple-Silicon release (separate from the
-  MLX 8-bit build that ships today).
-
-- **`index` / `search`** — caption + embed a whole folder into a local index,
-  then semantic search across your library (two-stage retrieval). Database and
-  ranking are still being decided.
-- **Speech** — fold faster-whisper transcripts into the index, to search by what
-  was *said* as well as what *happened*.
-- **More skills** — social-media analysis, footage catalog, clip scoring — each
-  a `SKILL.md` riding the same verbs.
+- **Try it live** → [vlm.nemostation.com](https://vlm.nemostation.com/)
+- **Model card + benchmarks** → [huggingface.co/NemoStation/Marlin-2B](https://huggingface.co/NemoStation/Marlin-2B)
+- **Team / custom fine-tuning** → [nemostation.com](https://nemostation.com/)
