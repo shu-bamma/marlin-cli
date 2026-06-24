@@ -26,6 +26,8 @@ import urllib.request
 from .config import CONFIG_DIR
 
 SUPABASE_URL = os.environ.get("MARLIN_SUPABASE_URL", "https://iqjjodhgoohixngrlqaf.supabase.co").rstrip("/")
+# SAFETY: this MUST stay the `sb_publishable_` (anon) key — public by design,
+# guarded by RLS, safe to ship. NEVER put a `sb_secret_`/service_role key here.
 SUPABASE_KEY = os.environ.get("MARLIN_SUPABASE_KEY", "sb_publishable_BheDPS6J2QRE7bnyqzCyfA_KErwKoGp")
 AUTH_FILE = CONFIG_DIR / "auth.json"
 
@@ -141,6 +143,27 @@ def _update_profile(access_token: str, data: dict) -> None:
     urllib.request.urlopen(req, timeout=15).close()
 
 
+_MAX_PROFILE_BYTES = 8192
+
+
+def _clean_profile(raw: bytes) -> dict:
+    """Whitelist the onboarding answers before they're written to user_metadata:
+    only affiliation + use_case, strings, length-capped. Anything else is dropped,
+    so a stray cross-origin POST can't stuff arbitrary keys into the user's record."""
+    try:
+        data = json.loads(raw or b"{}")
+    except Exception:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    out = {}
+    for k in ("affiliation", "use_case"):
+        v = data.get(k)
+        if isinstance(v, str) and v.strip():
+            out[k] = v.strip()[:500]
+    return out
+
+
 def login(*, log=lambda m: None, timeout: float = 300.0) -> dict:
     """Run the browser sign-in (2-question form → Google); return
     {email, user_id, refresh_token}. The answers land in Supabase user_metadata.
@@ -154,9 +177,11 @@ def login(*, log=lambda m: None, timeout: float = 300.0) -> dict:
     authorize = (
         f"{SUPABASE_URL}/auth/v1/authorize?provider=google"
         f"&redirect_to={urllib.parse.quote(redirect, safe='')}"
-        f"&code_challenge={challenge}&code_challenge_method=s256"
+        f"&code_challenge={challenge}&code_challenge_method=S256"
     )
     form_page = _form_html(authorize)
+    # Only our own loopback form may POST answers; reject cross-origin writes.
+    allowed_origins = {f"http://localhost:{port}", f"http://127.0.0.1:{port}"}
 
     caught: dict = {}
 
@@ -185,16 +210,20 @@ def login(*, log=lambda m: None, timeout: float = 300.0) -> dict:
             self._reply(b"", 204)  # favicon, etc.
 
         def do_POST(self):
-            if urllib.parse.urlparse(self.path).path == "/profile":
-                n = int(self.headers.get("Content-Length") or 0)
-                raw = self.rfile.read(n) if n else b"{}"
-                try:
-                    caught["profile"] = json.loads(raw or b"{}")
-                except Exception:
-                    caught["profile"] = {}
-                self._reply(b"", 204)
+            if urllib.parse.urlparse(self.path).path != "/profile":
+                self._reply(b"", 404)
                 return
-            self._reply(b"", 404)
+            origin = self.headers.get("Origin")
+            if origin is not None and origin not in allowed_origins:
+                self._reply(b"", 403)  # cross-origin write attempt
+                return
+            n = int(self.headers.get("Content-Length") or 0)
+            if n > _MAX_PROFILE_BYTES:
+                self._reply(b"", 413)
+                return
+            raw = self.rfile.read(n) if n else b"{}"
+            caught["profile"] = _clean_profile(raw)
+            self._reply(b"", 204)
 
         def log_message(self, *a):
             pass
@@ -245,6 +274,11 @@ def login(*, log=lambda m: None, timeout: float = 300.0) -> dict:
     out = {"email": user.get("email"), "user_id": user.get("id"),
            "refresh_token": session.get("refresh_token")}
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    AUTH_FILE.write_text(json.dumps(out, indent=2) + "\n")
-    AUTH_FILE.chmod(0o600)
+    # Atomic 0600 create — auth.json holds the refresh_token, so never leave a
+    # world/group-readable window between write and chmod. fchmod covers the
+    # case where the file already existed with looser perms.
+    fd = os.open(AUTH_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.fchmod(fd, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(json.dumps(out, indent=2) + "\n")
     return out
