@@ -21,7 +21,8 @@ marlin_clips/
 .idea/
 .vscode/
 
-# session-harness state
+# session-harness state (LOCAL ONLY — never commit; .entire holds full transcripts)
+.entire/
 .agents/
 .codex/
 .claude/settings.local.json
