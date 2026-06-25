@@ -67,10 +67,17 @@ def _resolve_log_file() -> Path:
 
 
 def load_logging_config() -> LoggingConfig:
-    """Load logging settings from ``MARLIN_LOG_*`` environment variables."""
+    """Load logging settings from ``MARLIN_LOG_*`` environment variables.
+
+    Operator logging is opt-in: both sinks default off so a normal/agent
+    invocation does no logging I/O. ``marlin`` is invoked constantly (every
+    agent ``caption``/``find`` call), so it must not write a rotating file
+    under ``$HOME`` by default — enable with ``MARLIN_LOG_FILE_ENABLED=1`` (or
+    ``MARLIN_LOG_STDERR=1``) when debugging.
+    """
     return LoggingConfig(
         stderr_enabled=_env_bool("MARLIN_LOG_STDERR", False),
-        file_enabled=_env_bool("MARLIN_LOG_FILE_ENABLED", True),
+        file_enabled=_env_bool("MARLIN_LOG_FILE_ENABLED", False),
         stderr_level=os.environ.get("MARLIN_LOG_LEVEL", "WARNING").upper(),
         file_level=os.environ.get("MARLIN_LOG_FILE_LEVEL", "INFO").upper(),
         log_file=_resolve_log_file(),
