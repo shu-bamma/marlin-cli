@@ -16,7 +16,10 @@ import math
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import httpx
 from openai import OpenAI
@@ -32,6 +35,7 @@ from .contract import (
 )
 from .logging import get_logger
 from .models import Config
+from .video_processor import CHUNK_SECONDS, OVERLAP_SECONDS
 
 logger = get_logger("backend")
 
@@ -197,6 +201,8 @@ def downscale_proxy(
             ],
             check=True,
             stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
     except Exception as exc:
         logger.warning("failed to create downscale proxy for {}: {}", path, exc)
@@ -294,7 +300,7 @@ class Marlin:
         return self._ask(video, CAPTION_DETAIL_PROMPT)
 
     def ground(self, video: Path, query: str) -> tuple[tuple[float, float], str]:
-        """Locate a query inside a clip.
+        """Locate a query inside a single clip.
 
         Parameters
         ----------
@@ -311,3 +317,107 @@ class Marlin:
         raw = self._ask(video, GROUND_PROMPT.format(query=query), max_tokens=64)
         span, tier = parse_span(raw)
         return (span, tier)
+
+    def ground_video(
+        self,
+        video: Path,
+        query: str,
+        on_chunk_start: Callable[[int, int, float, float], Any] | None = None,
+        chunk_seconds: float = CHUNK_SECONDS,
+        overlap_seconds: float = OVERLAP_SECONDS,
+    ) -> GroundResult:
+        """Locate a query in a video of any length.
+
+        Probes the video duration; if longer than chunk_seconds the video is
+        automatically chunked and each chunk is grounded via ``self.ground``.
+        Results are mapped to global timestamps, deduplicated, and returned
+        as a single ``GroundResult``.
+
+        Parameters
+        ----------
+        video
+            Video file to search.
+        query
+            Natural-language event description.
+        on_chunk_start
+            Optional progress callback ``(idx, total, start_sec, end_sec)``.
+        chunk_seconds
+            Duration per chunk window in seconds.
+        overlap_seconds
+            Overlap between consecutive chunks in seconds.
+
+        Returns
+        -------
+        GroundResult
+        """
+        from .video_processor import (
+            find_in_long_video,
+            hits_to_visualizer_events,
+            probe_duration_seconds,
+        )
+
+        try:
+            duration = probe_duration_seconds(video)
+        except Exception:
+            duration = None
+
+        # Chunk whenever the video exceeds the *requested* window, so a custom
+        # --chunk-seconds actually takes effect (the module default is only the
+        # fallback). Using the constant here would silently ignore the flag for
+        # any video between chunk_seconds and CHUNK_SECONDS.
+        chunked = duration is not None and duration > chunk_seconds
+
+        if chunked:
+            long_result = find_in_long_video(
+                video_path=video,
+                query=query,
+                ground_fn=self.ground,
+                on_chunk_start=on_chunk_start,
+                chunk_seconds=chunk_seconds,
+                overlap_seconds=overlap_seconds,
+            )
+            events = hits_to_visualizer_events(long_result)
+            return GroundResult(
+                events=events,
+                found=len(events) > 0,
+                duration=long_result.duration_seconds,
+                chunked=True,
+                # single-clip fields left at defaults
+            )
+
+        # Short video — direct single-clip grounding.
+        (start, end), tier = self.ground(video, query)
+        found = tier != "no_match"
+        events = []
+        if found:
+            events.append(
+                {
+                    "global_start": round(start, 2),
+                    "global_end": round(end, 2),
+                    "description": query,
+                    "chunk_id": 0,
+                }
+            )
+        return GroundResult(
+            events=events,
+            found=found,
+            duration=duration,
+            chunked=False,
+            start=start,
+            end=end,
+            tier=tier,
+        )
+
+
+@dataclass
+class GroundResult:
+    """Unified result from ``Marlin.ground_video``."""
+
+    events: list[dict] = field(default_factory=list)
+    found: bool = False
+    duration: float | None = None
+    chunked: bool = False
+    # populated only when chunked=False (single-clip path)
+    start: float = 0.0
+    end: float = 0.0
+    tier: str = ""

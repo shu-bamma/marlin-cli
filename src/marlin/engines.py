@@ -37,8 +37,8 @@ MLX_WEIGHTS_URL = os.environ.get(
     "MARLIN_MLX_WEIGHTS_URL", "https://marlinweights-d7btf0h4c5dxbzdk.z01.azurefd.net/weights"
 ).rstrip("/")
 WEIGHTS_DIR = CONFIG_DIR / "weights" / "marlin-2b-mlx-8bit"
-_WEIGHTS_DONE = WEIGHTS_DIR / ".complete"      # Azure mirror fetched + verified here
-_HF_DONE = WEIGHTS_DIR / ".hf_complete"        # HF (token) fetched into the HF cache
+_WEIGHTS_DONE = WEIGHTS_DIR / ".complete"  # Azure mirror fetched + verified here
+_HF_DONE = WEIGHTS_DIR / ".hf_complete"  # HF (token) fetched into the HF cache
 _WEIGHT_FILES = (
     "config.json",
     "generation_config.json",
@@ -246,17 +246,21 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def _hf_token() -> "str | None":
-    """A Hugging Face token if the user has one (env or the standard token file).
+def _hf_token() -> str | None:
+    """Return the user's Hugging Face token if present (env or token file).
+
     Its presence means HF downloads are authenticated — fast + canonical — so we
-    prefer HF; without it, anonymous HF is rate-limited and we use the mirror."""
+    prefer HF; without it, anonymous HF is rate-limited and we use the mirror.
+    """
     for env in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "HUGGINGFACE_TOKEN"):
         t = os.environ.get(env)
         if t and t.strip():
             return t.strip()
-    for p in (os.environ.get("HF_TOKEN_PATH"),
-              Path.home() / ".cache" / "huggingface" / "token",
-              Path.home() / ".huggingface" / "token"):
+    for p in (
+        os.environ.get("HF_TOKEN_PATH"),
+        Path.home() / ".cache" / "huggingface" / "token",
+        Path.home() / ".huggingface" / "token",
+    ):
         try:
             if p and Path(p).is_file():
                 t = Path(p).read_text().strip()
@@ -268,15 +272,17 @@ def _hf_token() -> "str | None":
 
 
 def ensure_weights(cfg: Config, log) -> None:
-    """Fetch the MLX weights (~2.5 GB) once, before serving, then serve from the
-    result. Source preference: **Hugging Face when a token is configured**
+    """Fetch the MLX weights (~2.5 GB) once before serving.
+
+    Source preference: **Hugging Face when a token is configured**
     (authenticated → fast + canonical; via snapshot_download, which handles HF
     auth/redirects), **else the public Azure CDN mirror** (anonymous HF is
     rate-limited). The mirror path SHA256-verifies every file against a pinned
     hash — the engine runs the downloaded modeling_marlin.py via
     --trust-remote-code, so a tampered/transient mirror response fails closed
     (re-fetched once, else abort → serve falls back to the HF repo id).
-    Idempotent + resumable; one clean progress bar for the big file."""
+    Idempotent + resumable; one clean progress bar for the big file.
+    """
     if _WEIGHTS_DONE.exists() or _HF_DONE.exists():
         return
 
@@ -285,10 +291,14 @@ def ensure_weights(cfg: Config, log) -> None:
     py = mlx_python()
     if _hf_token() and py.is_file():
         log("fetching Marlin-2B weights from your Hugging Face account (one-time, ~2.5 GB)…")
-        code = "import sys; from huggingface_hub import snapshot_download; snapshot_download(sys.argv[1])"
+        code = (
+            "import sys; from huggingface_hub import snapshot_download; "
+            "snapshot_download(sys.argv[1])"
+        )
         try:
-            subprocess.run([str(py), "-c", code, cfg.mlx_weights],
-                           check=True, stdin=subprocess.DEVNULL)
+            subprocess.run(
+                [str(py), "-c", code, cfg.mlx_weights], check=True, stdin=subprocess.DEVNULL
+            )
             WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
             _HF_DONE.write_text("ok\n")
             return
@@ -315,8 +325,11 @@ def ensure_weights(cfg: Config, log) -> None:
                 dest.unlink(missing_ok=True)
             resume = ["-C", "-"] if attempt == 1 else []
             try:
-                subprocess.run(["curl", "-fL", *prog, "--retry", "3", *resume, "-o", str(dest), url],
-                               check=True, stdin=subprocess.DEVNULL)
+                subprocess.run(
+                    ["curl", "-fL", *prog, "--retry", "3", *resume, "-o", str(dest), url],
+                    check=True,
+                    stdin=subprocess.DEVNULL,
+                )
             except subprocess.CalledProcessError as exc:
                 logger.warning(
                     "weight download failed: file={} attempt={} error={}", f, attempt, exc

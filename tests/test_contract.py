@@ -113,6 +113,33 @@ class _FakeMarlin:
     def ground(self, video, query):
         return (4.0, 6.25), "from_pair"
 
+    def ground_video(
+        self,
+        video,
+        query,
+        on_chunk_start=None,
+        chunk_seconds=30.0,
+        overlap_seconds=5.0,
+    ):
+        from marlin.backend import GroundResult
+
+        return GroundResult(
+            events=[
+                {
+                    "global_start": 4.0,
+                    "global_end": 6.25,
+                    "description": query,
+                    "chunk_id": 0,
+                }
+            ],
+            found=True,
+            duration=None,
+            chunked=False,
+            start=4.0,
+            end=6.25,
+            tier="from_pair",
+        )
+
 
 def test_caption_command_json_shape():
     from marlin import backend, cli
@@ -168,6 +195,14 @@ def test_find_command_json_shape():
         "end": 6.25,
         "found": True,
         "tier": "from_pair",
+        "events": [
+            {
+                "global_start": 4.0,
+                "global_end": 6.25,
+                "description": "train arrives",
+                "chunk_id": 0,
+            }
+        ],
     }
 
 
