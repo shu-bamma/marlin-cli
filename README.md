@@ -14,7 +14,7 @@ happening, and **when**. Runs free and local on Apple Silicon — no API key, no
 Hugging Face account.
 
 - **`marlin caption`** → a Scene description + a `<start>–<end>` event timeline
-- **`marlin find`** → the single `start → end` span where your query happens
+- **`marlin find`** → locate when a query happens (supports auto-chunking for long videos)
 
 ## Install
 
@@ -26,13 +26,14 @@ uv tool install nemostation      # 1. install   (or: pipx install nemostation)
 marlin setup                     # 2. set up    (sign in, build engine, download weights)
 marlin caption clip.mp4          # describe what's in a video
 marlin find clip.mp4 "a deer crossing"   # locate when it happens → start → end
+marlin find clip.mp4 "a deer crossing" --view # same as above but with a visualizer
 ```
 
 **Two commands and you're done** — `setup` does everything: a one-time browser
 sign-in (two questions, then Google), builds the local MLX engine, and downloads
 the weights. After it finishes, `caption` and `find` just work. The 8-bit
 weights are **public** — nothing gated, no API key. Add `--json` to any command
-for parseable output. (`ffmpeg` is optional — only for windowing videos >2 min.)
+for parseable output, or `--view` to generate and open an interactive browser visualizer.
 
 The engine stays warm between calls so responses are fast. To shut it down and
 free the RAM (~16 GB): **`marlin stop`**. It auto-starts again on the next call.
@@ -51,10 +52,20 @@ free the RAM (~16 GB): **`marlin stop`**. It auto-starts again on the next call.
 </table>
 
 Each call runs one model pass on one bounded clip (~2 min at 2 fps) — the same
-contract as the inference server. Clips are **auto-downscaled to the model's
+contract as the inference server. For longer videos, Marlin automatically segments the video into overlapping chunks (configured via `--chunk-seconds` and `--overlap`),
+
+Clips are **auto-downscaled to the model's
 ~200K-pixel budget** before inference (faster, far less memory, no accuracy
 loss) — tune with `--max-pixels` (lower on weak machines) or `--full-res` to opt
 out. For longer videos, window with `ffmpeg` and loop.
+
+## Interactive Visualizer
+
+By adding the `--view` flag to either `find` or `caption`, Marlin compiles the detected events into a self-contained HTML dashboard and opens it in your default browser.
+
+<p align="center">
+  <img src="PR/visualizer-multi.png" width="700" alt="Marlin Interactive Visualizer Dashboard"/>
+</p>
 
 ## Why Marlin
 
