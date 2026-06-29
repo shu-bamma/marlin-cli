@@ -52,19 +52,25 @@ free the RAM (~16 GB): **`marlin stop`**. It auto-starts again on the next call.
 </table>
 
 Each call runs one model pass on one bounded clip (~2 min at 2 fps) — the same
-contract as the inference server. For longer videos, Marlin automatically segments the video into overlapping chunks (configured via `--chunk-seconds` and `--overlap`),
+contract as the inference server. For longer videos, Marlin automatically
+segments the input into overlapping ~30 s windows (5 s overlap by default,
+tunable via `--chunk-seconds` / `--overlap`), grounds each chunk independently,
+and merges the spans back to global timestamps.
 
-Clips are **auto-downscaled to the model's
-~200K-pixel budget** before inference (faster, far less memory, no accuracy
-loss) — tune with `--max-pixels` (lower on weak machines) or `--full-res` to opt
-out. For longer videos, window with `ffmpeg` and loop.
+Clips are **auto-downscaled to the model's ~200K-pixel budget** before inference
+(faster, far less memory, no accuracy loss) — tune with `--max-pixels` (lower on
+weak machines) or `--full-res` to opt out.
+
+`ffmpeg` / `ffprobe` are required for long-video chunking (clip extraction) and
+for auto-downscaling. A single short clip that needs no downscaling runs without
+them.
 
 ## Interactive Visualizer
 
 By adding the `--view` flag to either `find` or `caption`, Marlin compiles the detected events into a self-contained HTML dashboard and opens it in your default browser.
 
 <p align="center">
-  <img src="PR/visualizer-multi.png" width="700" alt="Marlin Interactive Visualizer Dashboard"/>
+  <img src="https://raw.githubusercontent.com/shu-bamma/marlin-cli/main/assets/visualizer-multi.png" width="700" alt="Marlin Interactive Visualizer Dashboard"/>
 </p>
 
 ## Why Marlin
