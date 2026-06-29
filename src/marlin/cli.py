@@ -373,6 +373,9 @@ def caption(
     full_res: bool = typer.Option(
         False, "--full-res", help="Send the clip at full resolution (skip the auto-downscale)."
     ),
+    view: bool = typer.Option(
+        False, "--view", help="Generate an interactive HTML visualizer and open it."
+    ),
 ):
     """Describe what is in one video clip."""
     from .backend import Marlin
@@ -415,6 +418,15 @@ def caption(
         console.print()
 
     emit(result, human)
+# ── visualizer ────────────────────────────────────────────────────────────
+    if view and not detail and result.get("events"):
+        from .visualizer import generate_and_open
+
+        generate_and_open(
+            video_path=path,
+            events=result["events"],
+            query="Dense Captioning",
+        )
 
 
 @app.command()
@@ -429,6 +441,9 @@ def find(
     fps: float = typer.Option(2.0, "--fps", help="Frames/sec sampled (the model uses 2.0)."),
     full_res: bool = typer.Option(
         False, "--full-res", help="Send the clip at full resolution (skip the auto-downscale)."
+    ),
+    view: bool = typer.Option(
+        False, "--view", help="Generate an interactive HTML visualizer and open it."
     ),
 ):
     """Find when one event happens in one video clip."""
